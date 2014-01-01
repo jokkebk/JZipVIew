@@ -81,6 +81,11 @@ int jzReadCentralDirectory(FILE *zip, JZEndRecord *endRecord,
         JZRecordCallback callback);
 
 // Read local ZIP file header. Silent on errors so optimistic reading possible.
-int jzReadLocalFileHeader(FILE *zip, JZFileHeader *header);
+int jzReadLocalFileHeader(FILE *zip, JZFileHeader *header,
+        char *filename, int len);
+
+// Read data from file stream, described by header, to preallocated buffer
+// Return value is zlib coded, e.g. Z_OK, or error code
+int jzReadData(FILE *zip, JZFileHeader *header, void *buffer);
 
 #endif

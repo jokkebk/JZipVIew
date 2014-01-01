@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <zlib.h>
+
 #include "junzip.h"
 
 unsigned char jzEndSignature[4] = { 0x50, 0x4B, 0x05, 0x06 };
@@ -125,14 +127,16 @@ int jzReadCentralDirectory(FILE *zip, JZEndRecord *endRecord,
 
         totalSize += fileHeader.uncompressedSize;
 
-        callback(zip, i, &header, (char *)jzBuffer);
+        if(!callback(zip, i, &header, (char *)jzBuffer))
+            break; // end if callback returns zero
     }
 
     return 0;
 }
 
 // Read local ZIP file header. Silent on errors so optimistic reading possible.
-int jzReadLocalFileHeader(FILE *zip, JZFileHeader *header) {
+int jzReadLocalFileHeader(FILE *zip, JZFileHeader *header,
+        char *filename, int len) {
     JZLocalFileHeader localHeader;
 
     if(fread(&localHeader, 1, sizeof(JZLocalFileHeader), zip) <
@@ -142,8 +146,19 @@ int jzReadLocalFileHeader(FILE *zip, JZFileHeader *header) {
     if(localHeader.signature != 0x04034B50)
         return -1;
 
-    if(fseek(zip, localHeader.fileNameLength, SEEK_CUR))
-        return -1;
+    if(len) { // read filename
+        if(localHeader.fileNameLength >= len)
+            return -1; // filename cannot fit
+
+        if(fread(filename, 1, localHeader.fileNameLength, zip) <
+                localHeader.fileNameLength)
+            return -1; // read fail
+
+        filename[localHeader.fileNameLength] = '\0'; // NULL terminate
+    } else { // skip filename
+        if(fseek(zip, localHeader.fileNameLength, SEEK_CUR))
+            return -1;
+    }
 
     if(localHeader.extraFieldLength) {
         if(fseek(zip, localHeader.extraFieldLength, SEEK_CUR))
@@ -153,8 +168,82 @@ int jzReadLocalFileHeader(FILE *zip, JZFileHeader *header) {
     if(localHeader.generalPurposeBitFlag)
         return -1; // Flags not supported
 
-    memcpy(header, &localHeader, sizeof(JZFileHeader));
-    header->offset = ftell(zip); // shouldn't fail, but might - who cares?
+    if(localHeader.compressionMethod == 0 &&
+            (localHeader.compressedSize != localHeader.uncompressedSize))
+        return -1; // Method is "store" but sizes indicate otherwise, abort
+
+    memcpy(header, &localHeader.compressionMethod, sizeof(JZFileHeader));
+    header->offset = 0; // not used in local context
 
     return 0;
+}
+
+// Read data from file stream, described by header, to preallocated buffer
+// Return value is zlib coded, e.g. Z_OK, or error code
+int jzReadData(FILE *zip, JZFileHeader *header, void *buffer) {
+    unsigned char *bytes = (unsigned char *)buffer; // cast
+    long compressedLeft, uncompressedLeft;
+    z_stream strm;
+    int ret;
+
+    if(header->compressionMethod == 0) { // Store
+        if(fread(buffer, 1, header->uncompressedSize, zip) <
+                header->uncompressedSize || ferror(zip))
+            return Z_ERRNO;
+    } else if(header->compressionMethod == 8) { // Deflate
+        strm.zalloc = Z_NULL;
+        strm.zfree = Z_NULL;
+        strm.opaque = Z_NULL;
+
+        strm.avail_in = 0;
+        strm.next_in = Z_NULL;
+
+        // Use inflateInit2 with negative windowbits to indicate raw deflate data
+        if((ret = inflateInit2(&strm, -MAX_WBITS)) != Z_OK)
+            return ret; // Zlib errors are negative
+
+        // Inflate compressed data
+        for(compressedLeft = header->compressedSize,
+                uncompressedLeft = header->uncompressedSize;
+                compressedLeft && uncompressedLeft && ret != Z_STREAM_END;
+                compressedLeft -= strm.avail_in) {
+            // Read next chunk
+            strm.avail_in = fread(jzBuffer, 1,
+                    (sizeof(jzBuffer) < compressedLeft) ?
+                    sizeof(jzBuffer) : compressedLeft, zip);
+
+            if(strm.avail_in == 0 || ferror(zip)) {
+                inflateEnd(&strm);
+                return Z_ERRNO;
+            }
+
+            strm.next_in = jzBuffer;
+            strm.avail_out = uncompressedLeft;
+            strm.next_out = bytes;
+
+            compressedLeft -= strm.avail_in; // inflate will change avail_in
+
+            ret = inflate(&strm, Z_NO_FLUSH);
+
+            if(ret == Z_STREAM_ERROR) return ret; // shouldn't happen
+
+            switch (ret) {
+                case Z_NEED_DICT:
+                    ret = Z_DATA_ERROR;     /* and fall through */
+                case Z_DATA_ERROR:
+                case Z_MEM_ERROR:
+                    (void)inflateEnd(&strm);
+                    return ret;
+            }
+
+            bytes += uncompressedLeft - strm.avail_out; // bytes uncompressed
+            uncompressedLeft = strm.avail_out;
+        }
+
+        inflateEnd(&strm);
+    } else {
+        return Z_ERRNO;
+    }
+
+    return Z_OK;
 }

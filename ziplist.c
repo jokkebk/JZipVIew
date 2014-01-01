@@ -20,85 +20,54 @@ int writeFile(char *filename, void *data, long bytes) {
     return 0;
 }
 
-void readFile(FILE *zip, JZFileHeader *fileHeader, char *filename) {
-    long offset;
+int readFile(FILE *zip) {
     JZFileHeader header;
-    unsigned char *compressed, *uncompressed;
-    z_stream infstream;
-    int ret;
+    char filename[1024];
+    unsigned char *data;
 
-    offset = ftell(zip); // store position
-
-    fseek(zip, fileHeader->offset, SEEK_SET);
-
-    if(jzReadLocalFileHeader(zip, &header)) {
+    if(jzReadLocalFileHeader(zip, &header, filename, sizeof(filename))) {
         printf("Couldn't read local file header!");
-        return;
+        return -1;
     }
 
-    compressed = (unsigned char *)malloc(header.compressedSize);
-
-    if(compressed == NULL) {
-        puts("Couldn't allocate memory!");
-        goto endRead;
+    if((data = (unsigned char *)malloc(header.uncompressedSize)) == NULL) {
+        printf("Couldn't allocate memory!");
+        return -1;
     }
 
-    // Read file in
-    ret = fread(compressed, 1, header.compressedSize, zip);
+    printf("%s (%s), %ld / %ld bytes at offset %08lX\n", filename,
+            jzMethods[header.compressionMethod],
+            header.compressedSize, header.uncompressedSize, header.offset);
 
-    if(fileHeader->compressionMethod == 0) {
-        uncompressed = compressed; // nothing to do here, move along
-    } else if(fileHeader->compressionMethod == 8) { // deflate
-        uncompressed = (unsigned char *)malloc(header.uncompressedSize);
-
-        if(uncompressed == NULL) {
-            puts("Couldn't allocate memory!");
-            goto freeCompressed;
-        }
-        infstream.zalloc = Z_NULL;
-        infstream.zfree = Z_NULL;
-        infstream.opaque = Z_NULL;
-
-        infstream.next_in = (Bytef *)compressed;
-        infstream.avail_in = header.compressedSize;
-
-        infstream.next_out = (Bytef *)uncompressed;
-        infstream.avail_out = header.uncompressedSize;
-
-        // Use inflateInit2 with negative windowbits to indicate raw deflate data
-        if((ret = inflateInit2(&infstream, -MAX_WBITS)) != Z_OK) {
-            printf("Zlib error %d while initializing.\n", ret);
-            exit(1);
-        }
-
-        if((ret = inflate(&infstream, Z_NO_FLUSH)) < 0) {
-            printf("Zlib error %d while inflating.\n", ret);
-            exit(1);
-        }
-
-        inflateEnd(&infstream);
+    if(jzReadData(zip, &header, data) != Z_OK) {
+        printf("Couldn't read file data!");
+        return -1;
     } else {
-        puts("Unsupported compression method!");
-        goto freeCompressed;
+        writeFile(filename, data, header.uncompressedSize);
     }
 
-    writeFile(filename, uncompressed, header.uncompressedSize);
+    free(data);
 
-    if(uncompressed != compressed)
-        free(uncompressed);
-
-freeCompressed:
-    free(compressed);
-
-endRead:
-    fseek(zip, offset, SEEK_SET);
+    return 0;
 }
 
 int recordCallback(FILE *zip, int idx, JZFileHeader *header, char *filename) {
+    long offset;
+
     printf("%s (%s), %ld / %ld bytes at offset %08lX\n", filename,
             jzMethods[header->compressionMethod],
             header->compressedSize, header->uncompressedSize, header->offset);
-    readFile(zip, header, filename);
+
+    offset = ftell(zip); // store position
+
+    if(fseek(zip, header->offset, SEEK_SET)) {
+        printf("Cannot seek in zip file!");
+        return 0; // abort
+    }
+
+    readFile(zip);
+
+    fseek(zip, offset, SEEK_SET); // return to position
 
     return 1; // continue
 }
@@ -127,6 +96,8 @@ int main(int argc, char *argv[]) {
         printf("Couldn't read ZIP file central record.");
         goto endClose;
     }
+
+    //while(!readFile(zip)) {}
 
     retval = 0;
 
