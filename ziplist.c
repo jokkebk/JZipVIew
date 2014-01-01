@@ -3,105 +3,37 @@
 
 #include <zlib.h>
 
-typedef struct __attribute__ ((__packed__)) {
-    unsigned long signature;
-    unsigned short versionNeededToExtract;
-    unsigned short generalPurposeBitFlag;
-    unsigned short compressionMethod;
-    unsigned short lastModFileTime;
-    unsigned short lastModFileDate;
-    unsigned long crc32;
-    unsigned long compressedSize;
-    unsigned long uncompressedSize;
-    unsigned short fileNameLength;
-    unsigned short extraFieldLength;
-} ZipLocalFileHeader;
+#include "junzip.h"
 
-typedef struct __attribute__ ((__packed__)) {
-    unsigned long signature;
-    unsigned short versionMadeBy;
-    unsigned short versionNeededToExtract;
-    unsigned short generalPurposeBitFlag;
-    unsigned short compressionMethod;
-    unsigned short lastModFileTime;
-    unsigned short lastModFileDate;
-    unsigned long crc32;
-    unsigned long compressedSize;
-    unsigned long uncompressedSize;
-    unsigned short fileNameLength;
-    unsigned short extraFieldLength;
-    unsigned short fileCommentLength;
-    unsigned short diskNumberStart;
-    unsigned short internalFileAttributes;
-    unsigned long externalFileAttributes;
-    unsigned long relativeOffsetOflocalHeader;
-} ZipFileHeader;
+int writeFile(char *filename, void *data, long bytes) {
+    FILE *out = fopen(filename, "wb");
 
-typedef struct __attribute__ ((__packed__)) {
-    unsigned long signature; // (0x06054b50)
-    unsigned short diskNumber; // unsupported
-    unsigned short centralDirectoryDiskNumber; // unsupported
-    unsigned short numEntriesThisDisk; // unsupported
-    unsigned short numEntries;
-    unsigned long centralDirectorySize;
-    unsigned long centralDirectoryOffset;
-    unsigned short zipCommentLength;
-    // Followed by .ZIP file comment (variable size)
-} ZipEndOfCentralDirectoryRecord;
-
-typedef struct __attribute__ ((__packed__)) {
-    unsigned long headerSignature;
-    unsigned short sizeOfData;
-} ZipDigitalSignature;
-
-// Simple memmem
-unsigned char * findSignature(unsigned char *buffer, int bufsize, 
-        unsigned char *signature, int sigsize) {
-    int pos = 0;
-
-    for(; bufsize > 0; bufsize--, buffer++) {
-        if(*buffer == signature[pos]) {
-            pos++;
-            if(pos >= sigsize)
-                return buffer - pos + 1;
-        } else pos = 0;
+    if(out == NULL) {
+        fprintf(stderr, "Couldn't open %s for writing!\n", filename);
+        return -1;
     }
 
-    return NULL;
+    fwrite(data, 1, bytes, out); // best effort is enough here
+
+    fclose(out);
+
+    return 0;
 }
 
-unsigned char endSignature[4] = { 0x50, 0x4B, 0x05, 0x06 };
-char zipMethods[13][16] = {
-    "Store", "Shrunk", "Reduced #1", "Reduced #2", "Reduced #3", "Reduced #4",
-    "Implode", "Reserved", "Deflate", "Deflate64", "PKImplode",
-    "PKReserved", "BZIP2"
-};
-
-void readFile(FILE *zip, ZipFileHeader *fileHeader, char *filename) {
+void readFile(FILE *zip, JZFileHeader *fileHeader, char *filename) {
     long offset;
-    ZipLocalFileHeader header;
+    JZFileHeader header;
     unsigned char *compressed, *uncompressed;
-    FILE *out;
     z_stream infstream;
     int ret;
 
     offset = ftell(zip); // store position
 
-    fseek(zip, fileHeader->relativeOffsetOflocalHeader, SEEK_SET);
-    fread(&header, 1, sizeof(ZipLocalFileHeader), zip);
+    fseek(zip, fileHeader->offset, SEEK_SET);
 
-    if(header.signature != 0x04034B50) {
-        printf("Invalid file header %08lX!", header.signature);
-        goto endRead;
-    }
-
-    fseek(zip, header.fileNameLength, SEEK_CUR); // just skip...
-    if(header.extraFieldLength)
-        fseek(zip, header.extraFieldLength, SEEK_CUR); // just skip...
-
-    if(header.generalPurposeBitFlag) {
-        puts("Flags not supported!");
-        goto endRead;
+    if(jzReadLocalFileHeader(zip, &header)) {
+        printf("Couldn't read local file header!");
+        return;
     }
 
     compressed = (unsigned char *)malloc(header.compressedSize);
@@ -113,7 +45,6 @@ void readFile(FILE *zip, ZipFileHeader *fileHeader, char *filename) {
 
     // Read file in
     ret = fread(compressed, 1, header.compressedSize, zip);
-
 
     if(fileHeader->compressionMethod == 0) {
         uncompressed = compressed; // nothing to do here, move along
@@ -151,13 +82,7 @@ void readFile(FILE *zip, ZipFileHeader *fileHeader, char *filename) {
         goto freeCompressed;
     }
 
-    out = fopen(filename, "wb");
-    if(out == NULL) {
-        printf("Couldn't open %s for writing!\n", filename);
-    } else {
-        fwrite(uncompressed, 1, header.uncompressedSize, out);
-        fclose(out);
-    }
+    writeFile(filename, uncompressed, header.uncompressedSize);
 
     if(uncompressed != compressed)
         free(uncompressed);
@@ -169,14 +94,19 @@ endRead:
     fseek(zip, offset, SEEK_SET);
 }
 
+int recordCallback(FILE *zip, int idx, JZFileHeader *header, char *filename) {
+    printf("%s (%s), %ld / %ld bytes at offset %08lX\n", filename,
+            jzMethods[header->compressionMethod],
+            header->compressedSize, header->uncompressedSize, header->offset);
+    readFile(zip, header, filename);
+
+    return 1; // continue
+}
+
 int main(int argc, char *argv[]) {
     FILE *zip;
-    unsigned char buffer[4096]; // limits maximum zip descriptor size
-    int retval = -1, i;
-    long fileSize, totalSize = 0;
-    ZipEndOfCentralDirectoryRecord *endRecord;
-    ZipFileHeader fileHeader;
-    char *strFilename, *strExtrafield, *strFilecomment;
+    int retval = -1;
+    JZEndRecord endRecord;
 
     if(argc < 2) {
         puts("Usage: ziplist file.zip");
@@ -184,76 +114,19 @@ int main(int argc, char *argv[]) {
     }
 
     if(!(zip = fopen(argv[1], "rb"))) {
-        puts("Couldn't open file!");
+        printf("Couldn't open \"%s\"!", argv[1]);
         return -1;
     }
 
-    fseek(zip, 0, SEEK_END);
-    fileSize = ftell(zip); // get file size
-
-    if(fileSize < sizeof(buffer)) {
-        puts("Too small file!");
+    if(jzReadEndRecord(zip, &endRecord)) {
+        printf("Couldn't read ZIP file end record.");
         goto endClose;
     }
 
-    fseek(zip, fileSize - sizeof(buffer), SEEK_SET);
-    fread(buffer, 1, sizeof(buffer), zip);
-
-    // Naively assume signature can only be found in one place...
-    endRecord = (ZipEndOfCentralDirectoryRecord *)findSignature
-        (buffer, sizeof(buffer), endSignature, 4);
-
-    if(endRecord == NULL) {
-        puts("End record not found!");
+    if(jzReadCentralDirectory(zip, &endRecord, recordCallback)) {
+        printf("Couldn't read ZIP file central record.");
         goto endClose;
     }
-
-    if(endRecord->diskNumber || endRecord->centralDirectoryDiskNumber ||
-            endRecord->numEntries != endRecord->numEntriesThisDisk) {
-        puts("Multifile zips not supported!");
-        goto endClose;
-    }
-
-    printf("%d entries at %08lX (%ld bytes)\n", endRecord->numEntries,
-            endRecord->centralDirectoryOffset,
-            endRecord->centralDirectorySize);
-
-    fseek(zip, endRecord->centralDirectoryOffset, SEEK_SET);
-
-    for(i=0; i<endRecord->numEntries; i++) {
-        fread(&fileHeader, 1, sizeof(ZipFileHeader), zip);
-
-        if(fileHeader.signature != 0x02014B50) {
-            puts("Invalid file header!");
-            goto endClose;
-        }
-
-        strFilename = (char *)buffer;
-        fread(strFilename, 1, fileHeader.fileNameLength, zip);
-        strFilename[fileHeader.fileNameLength] = '\0'; // NULL terminate
-
-        strExtrafield = strFilename + fileHeader.fileNameLength + 1;
-        fread(strExtrafield, 1, fileHeader.extraFieldLength, zip);
-        strExtrafield[fileHeader.extraFieldLength] = '\0'; // NULL terminate
-
-        strFilecomment = strExtrafield + fileHeader.extraFieldLength + 1;
-        fread(strFilecomment, 1, fileHeader.fileCommentLength, zip);
-        strFilecomment[fileHeader.fileCommentLength] = '\0'; // NULL terminate
-
-        printf("%s (%s)\n", strFilename,
-                zipMethods[fileHeader.compressionMethod]);
-
-        printf("  Size: %ld / %ld at offset %08lX\n", 
-                fileHeader.compressedSize,
-                fileHeader.uncompressedSize,
-                fileHeader.relativeOffsetOflocalHeader);
-
-        readFile(zip, &fileHeader, strFilename);
-
-        totalSize += fileHeader.uncompressedSize;
-    }
-
-    printf("Total size of files %ld MB\n", totalSize / 1024 / 1024);
 
     retval = 0;
 

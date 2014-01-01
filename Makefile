@@ -12,7 +12,7 @@ run: ziplist.exe
 clean:
 	$(RM) *.o *.exe
 
-ziplist.exe: ziplist.o
+ziplist.exe: ziplist.o junzip.o
 	$(CC) $(CFLAGS) $^ $(ZIPLIBS) -o $@
 	
 jview2.exe: $(OBJECTS)
