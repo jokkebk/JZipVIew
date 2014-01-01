@@ -2,22 +2,19 @@ CC=gcc
 CFLAGS=-Wall -O3 -ISDL/include -IS:/Programs/MinGW/msys/1.0/local/include
 LIBS=-LSDL/lib -LS:/Programs/MinGW/msys/1.0/local/lib -mwindows -lmingw32 -lSDLmain -lSDL -lpng -lz -ljpeg -lstdc++
 ZIPLIBS=-LS:/Programs/MinGW/msys/1.0/local/lib -lz
-OBJECTS=main.o image.o font.o
+OBJECTS=main.o junzip.o image.o font.o
 
-all: jview2.exe ziplist.exe
+all: jview2.exe
 
-run: ziplist.exe
+run: jview2.exe
 	./$^ test.zip
 	
 clean:
 	$(RM) *.o *.exe
 
-ziplist.exe: ziplist.o junzip.o
-	$(CC) $(CFLAGS) $^ $(ZIPLIBS) -o $@
-	
 jview2.exe: $(OBJECTS)
 	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
-	
+
 %.exe: %.o
 	$(CC) $(CFLAGS) $< -o $@
 

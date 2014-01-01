@@ -1,10 +1,15 @@
+/**
+ * JUnzip library by Joonas Pihlajamaa (firstname.lastname@iki.fi).
+ * Released into public domain. https://github.com/jokkebk/JUnzip
+ */
+
 #ifndef __JUNZIP_H
 #define __JUNZIP_H
 
 typedef struct __attribute__ ((__packed__)) {
     unsigned long signature;
-    unsigned short versionNeededToExtract;
-    unsigned short generalPurposeBitFlag;
+    unsigned short versionNeededToExtract; // unsupported
+    unsigned short generalPurposeBitFlag; // unsupported
     unsigned short compressionMethod;
     unsigned short lastModFileTime;
     unsigned short lastModFileDate;
@@ -12,14 +17,14 @@ typedef struct __attribute__ ((__packed__)) {
     unsigned long compressedSize;
     unsigned long uncompressedSize;
     unsigned short fileNameLength;
-    unsigned short extraFieldLength;
+    unsigned short extraFieldLength; // unsupported
 } JZLocalFileHeader;
 
 typedef struct __attribute__ ((__packed__)) {
     unsigned long signature;
-    unsigned short versionMadeBy;
-    unsigned short versionNeededToExtract;
-    unsigned short generalPurposeBitFlag;
+    unsigned short versionMadeBy; // unsupported
+    unsigned short versionNeededToExtract; // unsupported
+    unsigned short generalPurposeBitFlag; // unsupported
     unsigned short compressionMethod;
     unsigned short lastModFileTime;
     unsigned short lastModFileDate;
@@ -27,11 +32,11 @@ typedef struct __attribute__ ((__packed__)) {
     unsigned long compressedSize;
     unsigned long uncompressedSize;
     unsigned short fileNameLength;
-    unsigned short extraFieldLength;
-    unsigned short fileCommentLength;
-    unsigned short diskNumberStart;
-    unsigned short internalFileAttributes;
-    unsigned long externalFileAttributes;
+    unsigned short extraFieldLength; // unsupported
+    unsigned short fileCommentLength; // unsupported
+    unsigned short diskNumberStart; // unsupported
+    unsigned short internalFileAttributes; // unsupported
+    unsigned long externalFileAttributes; // unsupported
     unsigned long relativeOffsetOflocalHeader;
 } JZGlobalFileHeader;
 
@@ -46,7 +51,7 @@ typedef struct __attribute__ ((__packed__)) {
 } JZFileHeader;
 
 typedef struct __attribute__ ((__packed__)) {
-    unsigned long signature; // (0x06054b50)
+    unsigned long signature; // 0x06054b50
     unsigned short diskNumber; // unsupported
     unsigned short centralDirectoryDiskNumber; // unsupported
     unsigned short numEntriesThisDisk; // unsupported
@@ -57,26 +62,17 @@ typedef struct __attribute__ ((__packed__)) {
     // Followed by .ZIP file comment (variable size)
 } JZEndRecord;
 
-/*
-typedef struct __attribute__ ((__packed__)) {
-    unsigned long headerSignature;
-    unsigned short sizeOfData;
-} ZipDigitalSignature;
-*/
-
 // Callback prototype for central and local file record reading functions
 typedef int (*JZRecordCallback)(FILE *zip, int index, JZFileHeader *header,
         char *filename);
 
 #define JZ_BUFFER_SIZE 65536
 
-extern unsigned char jzEndSignature[4];
-extern char jzMethods[13][16];
-
 // Read ZIP file end record. Will move within file.
 int jzReadEndRecord(FILE *zip, JZEndRecord *endRecord);
 
 // Read ZIP file global directory. Will move within file.
+// Callback is called for each record, until callback returns zero
 int jzReadCentralDirectory(FILE *zip, JZEndRecord *endRecord,
         JZRecordCallback callback);
 
