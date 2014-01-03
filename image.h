@@ -93,6 +93,7 @@ void destroy_gradient(Uint32 *gradient);
 void write_JPEG_file (const char * filename, int quality, jImagePtr image);
 void write_JPEG_buffer (unsigned char ** buffer, unsigned long * size, int quality, jImagePtr image);
 jImagePtr read_JPEG_file (const char * filename);
+jImagePtr read_JPEG_buffer(unsigned char *inbuffer, unsigned long insize);
 #endif
 
 #ifdef USE_PNG

@@ -6,9 +6,12 @@
 #include <stdlib.h>
 #include <math.h>
 
+#include <zlib.h>
+
 #include "SDL/SDL.h"
 #include "image.h"
 #include "font.h"
+#include "junzip.h"
 
 /* Call this instead of exit(), so we can clean up SDL: atexit() is evil. */
 static void quit(int rc) {
@@ -16,60 +19,69 @@ static void quit(int rc) {
     exit(rc);
 }
 
-/*
-   void update_raw(JViewport & viewport, jImagePtr image, const char *modeline, bool bw) {
-   SDL_Surface *surface = viewport.screen;
-   Uint32 *pixels = (Uint32 *)surface->pixels;
-   Uint32 mul, white, grey;
-
-// set up pixel format specific things
-mul = (1 << surface->format->Rshift) +
-(1 << surface->format->Gshift) +
-(1 << surface->format->Bshift);
-grey = 0x80 * mul;
-white = 0xFF * mul;
-
-if ( SDL_LockSurface(surface) < 0 ) {
-fprintf(stderr, "Couldn't lock the display surface: %s\n",
-SDL_GetError());
-quit(2);
-}
-
-for(int y=0; y<surface->h; y++) {
-for(int x=0; x<surface->w; x++) {
-if(!viewport.inImage(x,y)) {
-pixels[y*surface->w + x] = ((x/4+y/4)&1) ? grey : 0;
-continue; // just a grid
-}
-
-if(bw)
-pixels[y*surface->w + x] =
-image->data[viewport.getImageOffset(x,y)] ? white : 0;
-else
-pixels[y*surface->w + x] = mul *
-image->data[viewport.getImageOffset(x,y)];
-}
-}
-
-write_font_SDL(surface, font24, redGrad, modeline, surface->w/2, 4, FONT_ALIGN_TOP + FONT_ALIGN_CENTER, 3);
-
-SDL_UnlockSurface(surface);
-SDL_UpdateRect(surface, 0, 0, 0, 0);
-}
-*/
-
 /*void printTime(Uint32 *time, const char * message) {
   Uint32 newtime = SDL_GetTicks();
   printf("%s %d ms\n", message, newtime - *time);
  *time = newtime;
  }*/
 
+void update_raw(SDL_Surface *surface, jImagePtr image) {
+    Uint32 *pixels = (Uint32 *)surface->pixels;
+    int x, y;
+
+    if ( SDL_LockSurface(surface) < 0 ) {
+        fprintf(stderr, "Couldn't lock the display surface: %s\n",
+                SDL_GetError());
+        quit(2);
+    }
+
+    for(y=0; y<surface->h; y++) {
+        for(x=0; x<surface->w; x++) {
+            if(y < image->height && x < image->width)
+                pixels[y*surface->w + x] = image->data[(y*image->width+x)*image->components] * 0x10101;
+            //(x+y & 1) ? 0xFFFFFF : 0;
+        }
+    }
+
+    //write_font_SDL(surface, font24, redGrad, modeline, surface->w/2, 4, FONT_ALIGN_TOP + FONT_ALIGN_CENTER, 3);
+
+    SDL_UnlockSurface(surface);
+    SDL_UpdateRect(surface, 0, 0, 0, 0);
+}
+
+jImagePtr readZip() {
+    FILE *zip = fopen("test.zip", "rb");
+    JZFileHeader header;
+    char filename[1024];
+    unsigned char *data;
+    jImagePtr image = NULL;
+
+    if(jzReadLocalFileHeader(zip, &header, filename, sizeof(filename))) {
+        printf("Couldn't read local file header!");
+        return NULL;
+    }
+
+    if((data = (unsigned char *)malloc(header.uncompressedSize)) == NULL) {
+        printf("Couldn't allocate memory!");
+        return NULL;
+    }
+
+    if(jzReadData(zip, &header, data) == Z_OK) {
+        image = read_JPEG_buffer(data, header.uncompressedSize);
+    }
+
+    free(data);
+    fclose(zip);
+
+    return image;
+}
+
 int main(int argc, char *argv[]) {
     SDL_Surface *screen;
     SDL_Event event;
     jImagePtr image;
     jFontPtr font12, font24;
-    int done;
+    int done = 0;
 
     if(argc < 2) {
         puts("Usage: jview2 <pictures.zip>");
@@ -94,6 +106,9 @@ int main(int argc, char *argv[]) {
 
     SDL_WM_SetCaption("JView2", "JView2");
     SDL_EnableUNICODE(1);
+
+    image = readZip(); //read_JPEG_file("image001.jpg");
+    update_raw(screen, image);
 
     // main loop
     while(!done) {
