@@ -19,15 +19,39 @@ static void quit(int rc) {
     exit(rc);
 }
 
-/*void printTime(Uint32 *time, const char * message) {
-  Uint32 newtime = SDL_GetTicks();
-  printf("%s %d ms\n", message, newtime - *time);
- *time = newtime;
- }*/
+void printTime(const char * message) {
+    static Uint32 oldtime = 0;
+    Uint32 newtime = SDL_GetTicks();
 
-void update_raw(SDL_Surface *surface, jImagePtr image) {
+    if(oldtime > 0)
+        printf("%s %d ms\n", message, newtime - oldtime);
+
+    oldtime = newtime;
+}
+
+#define getR(i, x, y) (i->data[((y) * i->width + (x)) * i->components + 0])
+#define getG(i, x, y) (i->data[((y) * i->width + (x)) * i->components + 1])
+#define getB(i, x, y) (i->data[((y) * i->width + (x)) * i->components + 2])
+#define rgb(r,g,b) (((r)<<16)+((g)<<8)+(b))
+
+// fixed point scaling with bilinear filter
+void scale(SDL_Surface *surface, jImagePtr image, int x, int y, int w, int h) {
     Uint32 *pixels = (Uint32 *)surface->pixels;
-    int x, y;
+    int i, j, xp, yp, w2, h2, xpart, ypart;
+    int ox, oy, xs, ys; // 22.10 fixed point
+    int r, g, b;
+
+    if(w * image->height > image->width * h) { // screen is wider
+        xs = ys = 1024 * image->height / h;
+        w2 = image->width * h / image->height;
+        h2 = h;
+        x += (w - w2) / 2;
+    } else { // screen is higher
+        xs = ys = 1024 * image->width / w;
+        w2 = w;
+        h2 = image->height * w / image->width;
+        y += (h - h2) / 2;
+    }
 
     if ( SDL_LockSurface(surface) < 0 ) {
         fprintf(stderr, "Couldn't lock the display surface: %s\n",
@@ -35,11 +59,28 @@ void update_raw(SDL_Surface *surface, jImagePtr image) {
         quit(2);
     }
 
-    for(y=0; y<surface->h; y++) {
-        for(x=0; x<surface->w; x++) {
-            if(y < image->height && x < image->width)
-                pixels[y*surface->w + x] = image->data[(y*image->width+x)*image->components] * 0x10101;
-            //(x+y & 1) ? 0xFFFFFF : 0;
+    for(j=0, oy=0; j<h2; j++, oy+=ys) {
+        for(i=0, ox=0; i<w2; i++, ox+=xs) {
+            xp = ox >> 10;
+            yp = oy >> 10;
+            xpart = ox & 1023;
+            ypart = oy & 1023;
+
+            r = ((1024-xpart) * (1024-ypart) * getR(image, xp, yp) +
+                 (xpart) * (1024-ypart) * getR(image, xp+1, yp) +
+                 (1024-xpart) * (ypart) * getR(image, xp, yp+1) +
+                 (xpart) * (ypart) * getR(image, xp+1, yp+1)) >> 20;
+            g = ((1024-xpart) * (1024-ypart) * getG(image, xp, yp) +
+                 (xpart) * (1024-ypart) * getG(image, xp+1, yp) +
+                 (1024-xpart) * (ypart) * getG(image, xp, yp+1) +
+                 (xpart) * (ypart) * getG(image, xp+1, yp+1)) >> 20;
+            b = ((1024-xpart) * (1024-ypart) * getB(image, xp, yp) +
+                 (xpart) * (1024-ypart) * getB(image, xp+1, yp) +
+                 (1024-xpart) * (ypart) * getB(image, xp, yp+1) +
+                 (xpart) * (ypart) * getB(image, xp+1, yp+1)) >> 20;
+
+            pixels[(y+j)*surface->w + i + x] = rgb(r,g,b);
+            //(i+j & 1) ? 0xFFFFFF : 0;
         }
     }
 
@@ -49,8 +90,7 @@ void update_raw(SDL_Surface *surface, jImagePtr image) {
     SDL_UpdateRect(surface, 0, 0, 0, 0);
 }
 
-jImagePtr readZip() {
-    FILE *zip = fopen("test.zip", "rb");
+jImagePtr readZip(FILE *zip) {
     JZFileHeader header;
     char filename[1024];
     unsigned char *data;
@@ -66,27 +106,28 @@ jImagePtr readZip() {
         return NULL;
     }
 
-    if(jzReadData(zip, &header, data) == Z_OK) {
+    if(jzReadData(zip, &header, data) == Z_OK)
         image = read_JPEG_buffer(data, header.uncompressedSize);
-    }
 
     free(data);
-    fclose(zip);
 
     return image;
 }
 
 int main(int argc, char *argv[]) {
+    FILE *zip;
     SDL_Surface *screen;
     SDL_Event event;
-    jImagePtr image;
+    jImagePtr image = NULL;
     jFontPtr font12, font24;
-    int done = 0;
+    int done = 0, tx = 8, ty = 5, i = 0;
 
     if(argc < 2) {
         puts("Usage: jview2 <pictures.zip>");
         return 0;
     }
+
+    zip = fopen(argv[1], "rb");
 
     font12 = create_font(read_PNG_file("font12.png"),
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-+.,:;!?'/&()=", 2);
@@ -99,19 +140,39 @@ int main(int argc, char *argv[]) {
         return(1);
     }
 
+    //if((screen=SDL_SetVideoMode(0, 0, 32, SDL_FULLSCREEN + SDL_SWSURFACE)) == NULL ) {
     if((screen=SDL_SetVideoMode(1600, 1200, 32, SDL_SWSURFACE)) == NULL ) {
         fprintf(stderr, "Couldn't set video mode: %s\n", SDL_GetError());
         quit(2);
     }
 
+    tx = screen->w / 400;
+    ty = screen->h / 400;
+
     SDL_WM_SetCaption("JView2", "JView2");
     SDL_EnableUNICODE(1);
 
-    image = readZip(); //read_JPEG_file("image001.jpg");
-    update_raw(screen, image);
+    printTime("START");
 
     // main loop
     while(!done) {
+        if(i < tx * ty) {
+            if(image)
+                destroy_image(image);
+
+            if((image = readZip(zip)) == NULL) {
+                i = tx * ty; // stop
+                printTime("END");
+                continue;
+            }
+            scale(screen, image,
+                    screen->w / tx * (i % tx),
+                    screen->h / ty * (i / tx),
+                    screen->w / tx, screen->h / ty);
+            i++;
+            if(i == tx * ty) printTime("END");
+        }
+
         while(SDL_PollEvent(&event)) {
             switch(event.type) {
                 case SDL_MOUSEBUTTONDOWN:
@@ -156,6 +217,8 @@ int main(int argc, char *argv[]) {
 
     destroy_font(font12);
     destroy_font(font24);
+
+    fclose(zip);
 
     return(0);
 }
