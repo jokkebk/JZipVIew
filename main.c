@@ -401,7 +401,6 @@ int main(int argc, char *argv[]) {
     font24 = create_font(read_PNG_file(fontname),
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-+.,:;!?'/&()=", 4);
 
-    puts("1"); fflush(stdout);
     // initialize SDL
     if(SDL_Init(SDL_INIT_VIDEO) < 0) {
         fprintf(stderr, "Couldn't initialize SDL: %s\n",SDL_GetError());
