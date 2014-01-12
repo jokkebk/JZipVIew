@@ -12,6 +12,6 @@ GitHub: http://github.com/jokkebk/JZipView
 SourceForge: https://sourceforge.net/p/jzipview (binary downloads)
 
 This software is based in part on the work of the Independent JPEG Group. Also
-libpng, SDL, and zlib libraries are used, plus MinGW for building. All these
+libpng, SDL2, and zlib libraries are used, plus MinGW for building. All these
 libraries are needed when compiling from source. Edit the makefile
 appropriately to suit your local configuration and just type "make".
