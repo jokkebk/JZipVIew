@@ -2,17 +2,17 @@ CC=gcc
 CFLAGS=-Wall -O3 -ISDL/include -IS:/Programs/MinGW/msys/1.0/local/include
 LIBS=-LSDL/lib -LS:/Programs/MinGW/msys/1.0/local/lib -mwindows -lmingw32 -lSDLmain -lSDL -lpng -lz -ljpeg
 ZIPLIBS=-LS:/Programs/MinGW/msys/1.0/local/lib -lz
-OBJECTS=main.o junzip.o image.o font.o jview.res
+OBJECTS=main.o junzip.o image.o font.o icon.res
 
-all: jview.exe
+all: jzipview.exe
 
-run: jview.exe
+run: jzipview.exe
 	./$^ test.zip
 	
 clean:
 	$(RM) *.o *.exe
 
-jview.exe: $(OBJECTS)
+jzipview.exe: $(OBJECTS)
 	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
 
 %.exe: %.o
@@ -27,4 +27,4 @@ jview.exe: $(OBJECTS)
 # Small helpers to make point.hpp inline changes also recompile these files
 image.o: image.c image.h
 font.o: font.c font.h
-jview.res: jview.ico
+icon.res: icon.ico

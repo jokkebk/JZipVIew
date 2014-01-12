@@ -375,7 +375,7 @@ int main(int argc, char *argv[]) {
     enum { MODE_THUMBS, MODE_FULLSCREEN, MODE_FULLSIZE } mode = MODE_THUMBS;
 
     if(argc < 2) {
-        puts("Usage: jview2 <pictures.zip>");
+        puts("Usage: jzipview <pictures.zip>");
         return 0;
     }
 
@@ -419,7 +419,7 @@ int main(int argc, char *argv[]) {
     tx = screen->w / THUMB_W;
     ty = screen->h / THUMB_H;
 
-    SDL_WM_SetCaption("JView2", "JView2");
+    SDL_WM_SetCaption("JZipView", "JZipView");
     SDL_EnableUNICODE(1);
 
     grad = create_gradient(screen, 255, 255, 255);
