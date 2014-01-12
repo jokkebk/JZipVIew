@@ -5,7 +5,8 @@ Z_INC = -IS:/Programs/MinGW/msys/1.0/local/include
 
 CC=gcc
 CFLAGS=-Wall -O3 $(SDL_INC) $(Z_INC)
-LDFLAGS = -lmingw32 -mwindows -mconsole $(SDL_LIB) -lpng $(Z_LIB) -ljpeg
+# Add -mconsole below if you want
+LDFLAGS = -lmingw32 -mwindows $(SDL_LIB) -lpng $(Z_LIB) -ljpeg
 OBJECTS=main.o junzip.o image.o font.o icon.res
 
 all: jzipview.exe

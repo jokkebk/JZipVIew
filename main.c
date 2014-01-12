@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 #include <zlib.h>
 #include <jpeglib.h>
@@ -50,7 +51,7 @@ typedef struct {
 JPEGRecord *jpegs;
 int jpeg_count, thumbsLeft = 0;
 
-JFont *font24;
+SDL_Window *window = NULL;
 
 /* Call this instead of exit(), so we can clean up SDL: atexit() is evil. */
 static void quit(int rc) {
@@ -58,14 +59,14 @@ static void quit(int rc) {
     exit(rc);
 }
 
-void printTime(const char * message) {
-    static Uint32 oldtime = 0;
-    Uint32 newtime = SDL_GetTicks();
+static void writeMessage(int flags, char *title, char *format, ...) {
+    va_list args;
+    char message[1024];
 
-    if(oldtime > 0)
-        printf("%s %d ms\n", message, newtime - oldtime);
-
-    oldtime = newtime;
+    va_start(args, format);
+    vsprintf(message, format, args);
+    va_end(args);
+    SDL_ShowSimpleMessageBox(flags, title, message, window);
 }
 
 // fixed point scaling with bilinear filter to given max size (w/h)
@@ -85,7 +86,6 @@ JImage *scale(JImage *image, int w, int h) {
         h2 = image->h * w / image->w;
     }
 
-    //printf("Creating %d x %d res\n", w2, h2);
     res = create_image(w2, h2);
 
     for(j=0, oy=0; j<h2; j++, oy+=ys) {
@@ -147,11 +147,6 @@ JImage *read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
 
     jpeg_start_decompress(&cinfo);
 
-    //printf("Scale %d JPEG size %d x %d, output size %d x %d (%d x %d)\n",
-    //        cinfo.scale_num,
-    //        cinfo.image_width, cinfo.image_height,
-    //        cinfo.output_width, cinfo.output_height, tx, ty);
-
     row_stride = cinfo.output_width * cinfo.output_components;
 
     /* Make a one-row-high sample array that will go away when done with image */
@@ -181,12 +176,12 @@ JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int tx, int ty) {
     fseek(zip, jpeg->offset, SEEK_SET);
 
     if(jzReadLocalFileHeader(zip, &header, filename, sizeof(filename))) {
-        fprintf(stderr, "Couldn't read local file header!");
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't read local file header!");
         quit(1);
     }
 
     if((jpeg->data = (unsigned char *)malloc(jpeg->size)) == NULL) {
-        fprintf(stderr, "Couldn't allocate memory!");
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't allocate memory!");
         quit(1);
     }
 
@@ -229,7 +224,7 @@ int recordCallback(FILE *zip, int idx, JZFileHeader *header, char *filename) {
     jpeg->filename = (char *)malloc(strlen(filename)+1);
 
     if(jpeg->filename == NULL) {
-        fprintf(stderr, "Couldn't allocate space for filename!\n");
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't allocate space for filename!\n");
         quit(1);
     }
 
@@ -244,7 +239,7 @@ int processZip(FILE *zip) {
     JZEndRecord endRecord;
 
     if(jzReadEndRecord(zip, &endRecord)) {
-        printf("Couldn't read ZIP file end record.");
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't read ZIP file end record.");
         return -1;
     }
 
@@ -252,7 +247,7 @@ int processZip(FILE *zip) {
     jpeg_count = 0;
 
     if(jzReadCentralDirectory(zip, &endRecord, recordCallback)) {
-        printf("Couldn't read ZIP file central record.");
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't read ZIP file central record.");
         return -1;
     }
 
@@ -274,7 +269,7 @@ void drawImage(JImage *screen, JImage *image, int xoff, int yoff) {
     blit_image(screen, dx, dy, image, xoff, yoff, image->w, image->h);
 }
 
-void drawThumbs(JImage *screen, JFont *font, Uint32 c, int tx, int ty, int topleft) {
+void drawThumbs(JImage *screen, JFont *font, int tx, int ty, int topleft) {
     JImage *thumb;
     int tw = screen->w / tx, th = screen->h / ty;
     int i, j, idx;
@@ -303,10 +298,10 @@ void drawThumbs(JImage *screen, JFont *font, Uint32 c, int tx, int ty, int tople
 }
 
 int main(int argc, char *argv[]) {
-    SDL_Window *window;
     SDL_Renderer *renderer;
     SDL_Texture *texture;
     JImage *screen;
+    JFont *font24;
     int x, y;
     char fontname[1024];
     FILE *zip;
@@ -318,17 +313,17 @@ int main(int argc, char *argv[]) {
     enum { MODE_THUMBS, MODE_FULLSCREEN, MODE_FULLSIZE } mode = MODE_THUMBS;
 
     if(argc < 2) {
-        puts("Usage: jzipview <pictures.zip>");
+        writeMessage(SDL_MESSAGEBOX_INFORMATION, "Usage", "jzipview <pictures.zip>");
         return 0;
     }
 
     if(strlen(argv[0]) > 1000) {
-        puts("Where are you invoking this?");
+        writeMessage(SDL_MESSAGEBOX_WARNING, "Too long path for executable", "Where are you invoking this?");
         return 0;
     }
 
     if(!(zip = fopen(argv[1], "rb"))) {
-        printf("Couldn't open \"%s\"!", argv[1]);
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't open ZIP \"%s\"!", argv[1]);
         return -1;
     }
 
@@ -345,7 +340,7 @@ int main(int argc, char *argv[]) {
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-+.,:;!?'/&()=", 4);
 
     if(SDL_Init(SDL_INIT_EVERYTHING) != 0) {
-        printf("SDL_Init Error: %s\n", SDL_GetError());
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "SDL_Init Error: %s\n", SDL_GetError());
         return 1;
     }
 
@@ -353,13 +348,13 @@ int main(int argc, char *argv[]) {
             SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
             0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP);
     if(window == NULL) {
-        printf("SDL_CreateWindow Error: %s\n", SDL_GetError());
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "SDL_CreateWindow Error: %s\n", SDL_GetError());
         return 1;
     }
 
     renderer = SDL_CreateRenderer(window, -1, 0);
     if(renderer == NULL) {
-        printf("SDL_CreateRenderer Error: %s\n", SDL_GetError());
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "SDL_CreateRenderer Error: %s\n", SDL_GetError());
         return 1;
     }
 
@@ -367,7 +362,7 @@ int main(int argc, char *argv[]) {
     SDL_GetRendererOutputSize(renderer, &x, &y);
     screen = create_image(x, y);
     if(screen == NULL) {
-        printf("SDL_CreateRenderer Error: %s\n", SDL_GetError());
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "SDL_CreateRenderer Error: %s\n", SDL_GetError());
         quit(1);
     }
 
@@ -382,10 +377,6 @@ int main(int argc, char *argv[]) {
     tx = screen->w / THUMB_W;
     ty = screen->h / THUMB_H;
 
-        for(y=0; y<screen->h; y++)
-            for(x=0; x<screen->w; x++)
-                screen->data[screen->w * y + x] = GETRGB(x,y,0); //rand(); //SETPIXEL(screen, x, y, rand());
-        greyscale_image(screen);
     // main loop
     while(!done) {
         SDL_UpdateTexture(texture, NULL, screen->data, screen->w * sizeof (Uint32));
@@ -411,7 +402,6 @@ int main(int argc, char *argv[]) {
                 if(jpeg->thumbnail != NULL) continue;
                 jpeg->thumbnail = loadImageFromZip(zip, jpeg, screen->w / tx, screen->h / ty);
                 thumbsLeft--;
-                //printf("Read %d x %d thumbnail, %d left\n", jpeg->thumbnail->w, jpeg->thumbnail->h, thumbsLeft);
                 redraw = 1;
                 break;
             }
@@ -420,7 +410,7 @@ int main(int argc, char *argv[]) {
         if(redraw) {
             switch(mode) {
                 case MODE_THUMBS:
-                    drawThumbs(screen, font24, 0xFFFFFF, tx, ty, currentImage);
+                    drawThumbs(screen, font24, tx, ty, currentImage);
                     break;
                 case MODE_FULLSCREEN:
                     drawImage(screen, fullscreen, 0, 0);
@@ -502,8 +492,6 @@ int main(int argc, char *argv[]) {
                     break;
 
                 case SDL_KEYDOWN:
-                    //printf("Key down: '%c' (%d)\n", event.key.keysym.unicode, event.key.keysym.unicode);
-                    //More examples at jpeg2sgf source main.cc
                     switch(event.key.keysym.sym) {
                         case SDLK_ESCAPE:
                         case SDLK_q: case SDLK_x:
