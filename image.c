@@ -1,3 +1,24 @@
+/**
+ * Image routines.
+ *
+ * Copyright 2013 by Joonas Pihlajamaa <joonas.pihlajamaa@iki.fi>
+ *
+ * This file is part of JZipView, see https://github.com/jokkebk/JZipVIew
+ *
+ * JZipView is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * JZipView is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with JZipView.  If not, see <http://www.gnu.org/licenses/>.
+ * @license GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,58 +43,9 @@ jImagePtr create_image(int width, int height, int components) {
     return img;
 }
 
-// halves vertical and horizontal resolution - doesn't reallocate (it's for pussies)
-void downscale_image(jImagePtr img) {
-    int x, y, k;
-
-    for(y=0; y<img->height/2; y++) {
-        for(x=0; x<img->width/2; x++) {
-            for(k=0; k<img->components; k++) {
-                img->data[(y * img->width/2 + x) * img->components + k] = (
-                    img->data[((y*2+0) * img->width + (x*2+0)) * img->components + k] +
-                    img->data[((y*2+0) * img->width + (x*2+1)) * img->components + k] +
-                    img->data[((y*2+1) * img->width + (x*2+0)) * img->components + k] +
-                    img->data[((y*2+1) * img->width + (x*2+1)) * img->components + k] ) / 4;
-            }
-        }
-    }
-
-    img->width /= 2;
-    img->height /= 2;
-}
-
-void fill_image(jImagePtr img, int r, int g, int b) {
-    int i, j, pos;
-
-    for(j=0, pos=0; j<img->height; j++) {
-        for(i=0; i<img->width; i++) {
-            img->data[pos+0] = r;
-            img->data[pos+1] = g;
-            img->data[pos+2] = b;
-            pos += img->components;
-        }
-    }
-}
-
-jImagePtr convert_to_greyscale(jImagePtr image) {
-    jImagePtr new = create_image(image->width, image->height, 1);
-    int x, y, c, sum;
-
-    for(y=0; y<image->height; y++) {
-        for(x=0; x<image->width; x++) {
-            for(c=0, sum=0; c<image->components; c++)
-                sum += image->data[(y*image->width+x)*image->components + c];
-            new->data[y*image->width+x] = sum / image->components;
-        }
-    }
-
-    return new;
-}
-
-jImagePtr duplicate_image(jImagePtr image) {
-    jImagePtr new = create_image(image->width, image->height, image->components);
-    copy_image(new, image);
-    return new;
+void destroy_image(jImagePtr img) {
+    free(img->data);
+    free(img);
 }
 
 void copy_image(jImagePtr dest, jImagePtr src) {
@@ -125,33 +97,6 @@ void rotate_image(jImagePtr dest, jImagePtr src, int angle) {
         break;
     }
 }
-
-// all zero to b, other to w, works only for 8-bit images (1 component)
-void copy_image_mono(jImagePtr dest, jImagePtr src, int b, int w) {
-    int pos;
-
-    if(dest->width != src->width || dest->height != src->height || dest->components != 1 || src->components != 1)
-        return;
-
-    for(pos = 0; pos < src->width * src->height; pos++)
-        dest->data[pos] = src->data[pos] ? w : b;
-}
-
-void half_alpha(jImagePtr img) {
-    int pos;
-
-    if(img->components != 4)
-        return;
-
-    for(pos = 3; pos < img->width * img->height * img->components; pos += img->components)
-        img->data[pos] >>= 1;
-}
-
-void destroy_image(jImagePtr img) {
-    free(img->data);
-    free(img);
-}
-
 
 // make a greyscale image through simple averaging
 void greyscale_image(jImagePtr img) {
@@ -214,18 +159,6 @@ void blit_font(jImagePtr image, jImagePtr letter, int x, int y, int c) {
     }
 }
 
-void auto_levels(jImagePtr image) {
-    int i, min = 255, max = 0;
-
-    for(i = 0; i < image->height * image->width; i++) {
-        min = MIN(min, image->data[i]);
-        max = MAX(max, image->data[i]);
-    }
-
-    for(i = 0; i < image->height * image->width; i++)
-        image->data[i] = (image->data[i] - min) * 255 / (max-min);
-}
-
 #ifdef USE_SDL
 Uint32 *create_gradient(SDL_Surface *s, int r, int g, int b) {
     Uint32 *grad = (Uint32 *)malloc(256*sizeof(Uint32));
@@ -276,85 +209,6 @@ void blit_font_SDL(SDL_Surface *s, jImagePtr letter, Uint32 *grad, int x, int y)
 
 #ifdef USE_JPEG
 
-void write_JPEG_file (const char * filename, int quality, jImagePtr image) {
-    struct jpeg_compress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-
-    FILE * outfile;     /* target file */
-    JSAMPROW row_pointer[1];    /* pointer to JSAMPLE row[s] */
-    int row_stride;     /* physical row width in image buffer */
-
-    cinfo.err = jpeg_std_error(&jerr);
-
-    jpeg_create_compress(&cinfo);
-
-    if ((outfile = fopen(filename, "wb")) == NULL) {
-        fprintf(stderr, "can't open %s\n", filename);
-        exit(1);
-    }
-    jpeg_stdio_dest(&cinfo, outfile);
-
-    cinfo.image_width = image->width;   /* image width and height, in pixels */
-    cinfo.image_height = image->height;
-    cinfo.input_components = 3;     /* # of color components per pixel */
-    cinfo.in_color_space = JCS_RGB;     /* colorspace of input image */
-
-    jpeg_set_defaults(&cinfo);
-
-    jpeg_set_quality(&cinfo, quality, TRUE /* limit to baseline-JPEG values */);
-
-    jpeg_start_compress(&cinfo, TRUE);
-
-    row_stride = image->width * 3;  /* JSAMPLEs per row in image_buffer */
-
-    while (cinfo.next_scanline < cinfo.image_height) {
-        row_pointer[0] = & image->data[cinfo.next_scanline * row_stride];
-        (void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
-    }
-
-    jpeg_finish_compress(&cinfo);
-
-    fclose(outfile);
-
-    jpeg_destroy_compress(&cinfo);
-}
-
-void write_JPEG_buffer (unsigned char ** buffer, unsigned long * size, int quality, jImagePtr image) {
-    struct jpeg_compress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-
-    JSAMPROW row_pointer[1];    /* pointer to JSAMPLE row[s] */
-    int row_stride;     /* physical row width in image buffer */
-
-    cinfo.err = jpeg_std_error(&jerr);
-
-    jpeg_create_compress(&cinfo);
-
-    jpeg_mem_dest(&cinfo, buffer, size);
-
-    cinfo.image_width = image->width;   /* image width and height, in pixels */
-    cinfo.image_height = image->height;
-    cinfo.input_components = 3;     /* # of color components per pixel */
-    cinfo.in_color_space = JCS_RGB;     /* colorspace of input image */
-
-    jpeg_set_defaults(&cinfo);
-
-    jpeg_set_quality(&cinfo, quality, TRUE /* limit to baseline-JPEG values */);
-
-    jpeg_start_compress(&cinfo, TRUE);
-
-    row_stride = image->width * 3;  /* JSAMPLEs per row in image_buffer */
-
-    while (cinfo.next_scanline < cinfo.image_height) {
-        row_pointer[0] = & image->data[cinfo.next_scanline * row_stride];
-        (void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
-    }
-
-    jpeg_finish_compress(&cinfo);
-
-    jpeg_destroy_compress(&cinfo);
-}
-
 jImagePtr read_JPEG_file (const char * filename) {
     struct jpeg_decompress_struct cinfo;
     struct jpeg_error_mgr jerr;
@@ -400,42 +254,6 @@ jImagePtr read_JPEG_file (const char * filename) {
     return image;
 }
 
-jImagePtr read_JPEG_buffer(unsigned char *inbuffer, unsigned long insize) {
-    struct jpeg_decompress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-
-    JSAMPARRAY buffer;      /* Output row buffer */
-    int row_stride;     /* physical row width in output buffer */
-    jImagePtr image;
-
-    cinfo.err = jpeg_std_error(&jerr);
-
-    jpeg_create_decompress(&cinfo);
-
-    jpeg_mem_src(&cinfo, inbuffer, insize);
-
-    /* Seems like these return something if read is interrupted */
-    jpeg_read_header(&cinfo, TRUE);
-    jpeg_start_decompress(&cinfo);
-
-    row_stride = cinfo.output_width * cinfo.output_components;
-
-    /* Make a one-row-high sample array that will go away when done with image */
-    buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
-
-    image = create_image(cinfo.output_width, cinfo.output_height, cinfo.output_components);
-
-    while (cinfo.output_scanline < cinfo.output_height) {
-        jpeg_read_scanlines(&cinfo, buffer, 1);
-        memcpy(&image->data[(cinfo.output_scanline-1) * row_stride], buffer[0], row_stride);
-    }
-
-    jpeg_finish_decompress(&cinfo);
-
-    jpeg_destroy_decompress(&cinfo);
-
-    return image;
-}
 #endif // USE_JPEG
 
 #ifdef USE_PNG
@@ -502,68 +320,6 @@ jImagePtr read_PNG_file(const char *file_name) {
     fclose(fp);
 
     return image;
-}
-
-int write_PNG_file(const char *filename, jImagePtr image) {
-    FILE *fp;
-    png_structp png_ptr;
-    png_infop info_ptr;
-
-    if(image->components != 3 && image->components != 4) // only RGB and RGBA currently supported
-        return 0;
-
-    fp = fopen(filename, "wb");
-    if (fp == NULL)
-        return 0;
-
-    png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-
-    if (png_ptr == NULL) {
-        fclose(fp);
-        return 0;
-    }
-
-    info_ptr = png_create_info_struct(png_ptr);
-    if (info_ptr == NULL) {
-        fclose(fp);
-        png_destroy_write_struct(&png_ptr,  NULL);
-        return 0;
-    }
-
-    if (setjmp(png_jmpbuf(png_ptr))) {
-        // If we get here, we had a problem writing the file
-        fclose(fp);
-        png_destroy_write_struct(&png_ptr, &info_ptr);
-        return 0;
-    }
-
-    // Set image attributes.
-    png_set_IHDR(png_ptr, info_ptr, image->width, image->height, 8,
-        image->components == 3 ? PNG_COLOR_TYPE_RGB : PNG_COLOR_TYPE_RGBA,
-        PNG_INTERLACE_NONE,
-        PNG_COMPRESSION_TYPE_DEFAULT,
-        PNG_FILTER_TYPE_DEFAULT);
-
-    //png_set_compression_level(png_ptr, 6); // 6 should be almost as good as 9
-
-    int i;
-    png_byte ** row_pointers;
-
-    // Initialize rows of PNG.
-    row_pointers = png_malloc(png_ptr, image->height * sizeof(png_byte *));
-    for (i = 0; i < image->height; i++)
-        row_pointers[i] = (png_byte *)(image->data + i * image->width * image->components);
-
-    png_init_io(png_ptr, fp);
-    png_set_rows(png_ptr, info_ptr, row_pointers);
-    png_write_png(png_ptr, info_ptr, PNG_TRANSFORM_IDENTITY, NULL);
-
-    png_free(png_ptr, row_pointers); // free row pointers
-
-    png_destroy_write_struct(&png_ptr, &info_ptr);
-    fclose(fp);
-
-    return 1;
 }
 
 #endif // USE_PNG

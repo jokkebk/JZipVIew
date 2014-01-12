@@ -1,3 +1,24 @@
+/**
+ * Font drawing routines.
+ *
+ * Copyright 2013 by Joonas Pihlajamaa <joonas.pihlajamaa@iki.fi>
+ *
+ * This file is part of JZipView, see https://github.com/jokkebk/JZipVIew
+ *
+ * JZipView is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * JZipView is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with JZipView.  If not, see <http://www.gnu.org/licenses/>.
+ * @license GPL-3.0+ <http://spdx.org/licenses/GPL-3.0+>
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,7 +26,6 @@
 #include "font.h"
 
 jImagePtr make_letter(jImagePtr font, int channel, int x, int y, int w, int h, void ** mempool) {
-    //printf("%d,%d -> %d x %d\n", x, y, w, h);
     int i, j, offset = 0;
     jImagePtr image = (jImagePtr)(*mempool);
     (*mempool) += sizeof(struct jImage);
@@ -31,8 +51,6 @@ jFontPtr create_font(jImagePtr font, const char * letter_list, int space_width) 
     greyscale_image(font);
     invert_image(font);
 
-    //printf("Initializing font: %d x %d, %d bpp\n", font->width, font->height, font->components * 8);
-
     for(top=0; top<font->height; top++) {
         // if the whole row is invisible, we get to the end of the row
         for(i=0; i<font->width && !font->data[(top * font->width + i) * font->components]; i++) {}
@@ -49,8 +67,6 @@ jFontPtr create_font(jImagePtr font, const char * letter_list, int space_width) 
             break; // there was a visible pixel
     }
 
-    //printf("Fonts use rows [%d, %d] out of [0, %d]\n", top, bottom, font->height-1);
-
     letters = 0; in_letter = 0; total_width = 0;
     for(i=0; i<font->width && letters < 128; i++) {
         for(j=0; j<font->height && !font->data[(j * font->width + i) * font->components]; j++) {}
@@ -59,7 +75,6 @@ jFontPtr create_font(jImagePtr font, const char * letter_list, int space_width) 
             total_width += i - left[letters]; // increase total width counter
             right[letters++] = i-1;
             in_letter = 0;
-            //printf("Closed letter %d (%c)\n", letters-1, letter_list[letters-1]);
         } else if(!in_letter && j < font->height) { // letter just started
             left[letters] = i;
             in_letter = 1;
@@ -94,12 +109,9 @@ jFontPtr create_font(jImagePtr font, const char * letter_list, int space_width) 
         fontPtr->convert[i] = -1;
 
     for(i=0; i<letters; i++) {
-        //printf("Letter %d (%c/ %d), [%d, %d]: %d x %d\n", i, letter_list[i], letter_list[i], left[i], top, right[i]-left[i]+1, bottom-top+1);
         fontPtr->convert[(int)letter_list[i]] = i;
         fontPtr->letter[i] = make_letter(font, 0, left[i], top, right[i]-left[i]+1, bottom-top+1, &letter_buffer);
     }
-
-    //printf("%d/%d bytes of buffer used\n", (int)(letter_buffer - (void *)fontPtr), buffer_size);
 
     destroy_image(font);
     return fontPtr;
@@ -129,8 +141,6 @@ void write_font_SDL(SDL_Surface *s, jFontPtr font, Uint32 *grad, const char *mes
         x -= total_width / 2;
     else if((align & 0xF0) == FONT_ALIGN_RIGHT)
         x -= total_width;
-
-    //printf("%d x %d text at (%d, %d)\n", total_width, font->letter[0]->height, x, y); fflush(stdout);
 
     for(i=0; i<len; i++) {
         if((ch = message[i]) == 32 || (n = font->convert[ch]) == -1) { // space and unknown characters
@@ -163,8 +173,6 @@ void write_font(jImagePtr image, jFontPtr font, int c, const char *message, int 
         x -= total_width / 2;
     else if((align & 0xF0) == FONT_ALIGN_RIGHT)
         x -= total_width;
-
-    //printf("%d x %d text at (%d, %d)\n", total_width, font->letter[0]->height, x, y);
 
     for(i=0; i<len; i++) {
         if((ch = message[i]) == 32 || (n = font->convert[ch]) == -1) { // space and unknown characters
