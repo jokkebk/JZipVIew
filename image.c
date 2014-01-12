@@ -25,72 +25,65 @@
 
 #include "image.h"
 
-jImagePtr create_image(int width, int height, int components) {
-    jImagePtr img = (jImagePtr)malloc(sizeof(struct jImage));
+JImage *create_image(int width, int height) {
+    JImage *img = (JImage *)malloc(sizeof(JImage));
 
     if(img == NULL)
         return NULL;
 
-    img->data = (JSAMPLE *)malloc(sizeof(JSAMPLE)*components*width*height);
+    img->data = (Uint32 *)malloc(sizeof(Uint32)*width*height);
 
     if(img->data == NULL)
         return NULL;
 
-    img->width = width;
-    img->height = height;
-    img->components = components;
+    img->w = width;
+    img->h = height;
 
     return img;
 }
 
-void destroy_image(jImagePtr img) {
+void destroy_image(JImage *img) {
     free(img->data);
     free(img);
 }
 
-void copy_image(jImagePtr dest, jImagePtr src) {
-    if(dest->width != src->width || dest->height != src->height || dest->components != src->components)
+void copy_image(JImage *dest, JImage *src) {
+    if(dest->w != src->w || dest->h != src->h)
         return;
 
-    memcpy(dest->data, src->data, src->width * src->height * src->components);
+    memcpy(dest->data, src->data, src->w * src->h * sizeof(Uint32));
 }
 
 // rotation in 90 degree steps clockwise, 0-3
-void rotate_image(jImagePtr dest, jImagePtr src, int angle) {
-    int x, y, c;
+void rotate_image(JImage *dest, JImage *src, int angle) {
+    int x, y;
 
-    if(dest->width * dest->height != src->width * src->height || src->components != dest->components)
+    if(dest->w * dest->h != src->w * src->h)
         return;
 
     if(angle == 1 || angle == 3) {
-        dest->width = src->height;
-        dest->height = src->width;
+        dest->w = src->h;
+        dest->h = src->w;
     } else {
-        dest->height = src->height;
-        dest->width = src->width;
+        dest->h = src->h;
+        dest->w = src->w;
     }
 
     switch(angle) {
     case 1:
-        for(y=0; y<src->height; y++)
-        for(x=0; x<src->width; x++)
-        for(c=0; c<src->components; c++)
-            dest->data[((x) * dest->width + (dest->width-1 - y)) * dest->components + c] =
-            src->data[((y) * src->width + (x)) * src->components + c];
+        for(y=0; y<src->h; y++)
+        for(x=0; x<src->w; x++)
+            SETPIXEL(dest, src->h - 1 - y, x, GETPIXEL(src, x, y));
         break;
     case 2:
-        for(y=0; y<src->height; y++)
-        for(x=0; x<src->width; x++)
-        for(c=0; c<src->components; c++)
-            dest->data[((dest->height - 1 - y) * dest->width + (dest->width - 1 - x)) * dest->components + c] =
-            src->data[((y) * src->width + (x)) * src->components + c];
+        for(y=0; y<src->h; y++)
+        for(x=0; x<src->w; x++)
+            SETPIXEL(dest, dest->w - 1 - x, dest->h - 1 - y, GETPIXEL(src, x, y));
         break;
     case 3:
-        for(y=0; y<src->height; y++)
-        for(x=0; x<src->width; x++)
-        for(c=0; c<src->components; c++)
-            dest->data[((dest->height - 1 - x) * dest->width + (y)) * dest->components + c] =
-            src->data[((y) * src->width + (x)) * src->components + c];
+        for(y=0; y<src->h; y++)
+        for(x=0; x<src->w; x++)
+            SETPIXEL(dest, y, src->w - 1 - x, GETPIXEL(src, x, y));
         break;
     default:
         copy_image(dest, src);
@@ -99,167 +92,109 @@ void rotate_image(jImagePtr dest, jImagePtr src, int angle) {
 }
 
 // make a greyscale image through simple averaging
-void greyscale_image(jImagePtr img) {
-    int i, j, offset = 0, r, g, b, avg;
+void greyscale_image(JImage *img) {
+    int x, y, avg;
+    Uint32 c;
 
-    for(j=0; j<img->height; j++) {
-        for(i=0; i<img->width; i++) {
-            r = img->data[offset+0];
-            g = img->data[offset+1];
-            b = img->data[offset+2];
-            avg = (r+g+b)/3;
-            img->data[offset+0] = avg;
-            img->data[offset+1] = avg;
-            img->data[offset+2] = avg;
-            offset += img->components;
+    for(y=0; y<img->h; y++) {
+        for(x=0; x<img->w; x++) {
+            c = GETPIXEL(img, x, y);
+            avg = (GETR(c) + GETG(c) + GETB(c)) / 3;
+            SETPIXEL(img, x, y, GETRGB(avg,avg,avg));
         }
     }
 }
 
 // invert image colors
-void invert_image(jImagePtr img) {
-    int i, j, offset = 0, r, g, b;
+void invert_image(JImage *img) {
+    int x, y;
 
-    for(j=0; j<img->height; j++) {
-        for(i=0; i<img->width; i++) {
-            r = img->data[offset+0];
-            g = img->data[offset+1];
-            b = img->data[offset+2];
-            img->data[offset+0] = 255-r;
-            img->data[offset+1] = 255-g;
-            img->data[offset+2] = 255-b;
-            offset += img->components;
+    for(y=0; y<img->h; y++) {
+        for(x=0; x<img->w; x++) {
+            SETPIXEL(img, x, y, 0xFFFFFF - GETPIXEL(img, x, y));
         }
     }
+}
+
+void fill_image(JImage *img, Uint32 c) {
+    int i;
+
+    for(i=0; i<img->w * img->h; i++)
+        img->data[i] = c;
+}
+
+void blit_image(JImage *dest, int dx, int dy, JImage *src, int sx, int sy, int w, int h) {
+    int x, y;
+
+    // Clipping
+    if(dx < 0) {
+        w += dx;
+        sx += dx;
+        dx = 0;
+    }
+    if(dy < 0) {
+        h += dy;
+        sy += dy;
+        dy = 0;
+    }
+    if(sx < 0) {
+        w += sx;
+        dx += sx;
+        sx = 0;
+    }
+    if(sy < 0) {
+        h += sy;
+        dy += sy;
+        sy = 0;
+    }
+    if(dx + w > dest->w)
+        w = dest->w - dx;
+    if(dy + h > dest->h)
+        h = dest->h - dy;
+    if(sx + w > src->w)
+        w = src->w - sx;
+    if(sy + h > src->h)
+        h = src->h - sy;
+
+    if(dx >= dest->w || dy >= dest->h || w <= 0 || h <= 0)
+        return;
+
+    for(y=0; y<h; y++)
+        for(x=0; x<w; x++)
+            SETPIXEL(dest, dx+x, dy+y, GETPIXEL(src, sx+x, sy+y));
+}
+
+void blit_sprite(JImage *dest, int dx, int dy, JImage *sprite) {
+    blit_image(dest, dx, dy, sprite, 0, 0, sprite->w, sprite->h);
 }
 
 #define BLEND(c1,c2,a) (((a) * (c1) + (255-(a)) * (c2)) >> 8)
 
 // Assumes alpha-only letter
-void blit_font(jImagePtr image, jImagePtr letter, int x, int y, int c) {
-    unsigned char *pixels = image->data, *ch = letter->data;
-    int i, j, k, alpha;
+void blit_font(JImage *image, JImage *letter, int x, int y, Uint32 c) {
+    int i, j, alpha, r = GETR(c), g = GETG(c), b = GETB(c);
+    Uint32 d;
 
-    for(j=MAX(0, -y); j<letter->height && y+j < image->height; j++) {
-        for(i=MAX(0, -x); i<letter->width && x+i < image->width; i++) {
-            alpha = ch[j * letter->width + i];
+    for(j=MAX(0, -y); j<letter->h && y+j < image->h; j++) {
+        for(i=MAX(0, -x); i<letter->w && x+i < image->w; i++) {
+            alpha = GETPIXEL(letter, i, j) & 255;
 
-            if(!alpha)
-                continue;
-
-            for(k=0; k<image->components; k++) {
-                if(alpha == 255) {
-                    pixels[((y+j) * image->width + (x+i))*image->components + k] = c;
-                } else {
-                    pixels[((y+j) * image->width + (x+i))*image->components + k] =
-                        BLEND(c, pixels[((y+j) * image->width + (x+i))*image->components + k], alpha);
-                }
-            }
-        }
-    }
-}
-
-#ifdef USE_SDL
-Uint32 *create_gradient(SDL_Surface *s, int r, int g, int b) {
-    Uint32 *grad = (Uint32 *)malloc(256*sizeof(Uint32));
-    int i;
-
-    for(i=0; i<256; i++) {
-        grad[i] =
-            (i * r / 255 << s->format->Rshift) +
-            (i * g / 255 << s->format->Gshift) +
-            (i * b / 255 << s->format->Bshift);
-    }
-
-    return grad;
-}
-
-void destroy_gradient(Uint32 *gradient) {
-    free(gradient);
-}
-
-// Assumes RGB surface and alpha-only letter, uses color gradient "grad"
-void blit_font_SDL(SDL_Surface *s, jImagePtr letter, Uint32 *grad, int x, int y) {
-    Uint32 *pixels = (Uint32 *)s->pixels;
-    unsigned char *ch = letter->data;
-    int i, j, r, g, b, alpha;
-
-    for(j=MAX(0, -y); j<letter->height && y+j < s->h; j++) {
-        for(i=MAX(0, -x); i<letter->width && x+i < s->w; i++) {
-            alpha = ch[j * letter->width + i];
-
-            if(!alpha)
-                continue;
+            if(!alpha) continue;
 
             if(alpha == 255) {
-                pixels[(y+j) * s->w + (x+i)] = grad[255];
+                SETPIXEL(image, x+i, y+j, c);
             } else {
-                r = (255-alpha) * ((pixels[(y+j) * s->w + (x+i)] >> s->format->Rshift) & 255) >> 8;
-                g = (255-alpha) * ((pixels[(y+j) * s->w + (x+i)] >> s->format->Gshift) & 255) >> 8;
-                b = (255-alpha) * ((pixels[(y+j) * s->w + (x+i)] >> s->format->Bshift) & 255) >> 8;
-                pixels[(y+j) * s->w + (x+i)] = grad[alpha] +
-                    (r << s->format->Rshift) +
-                    (g << s->format->Gshift) +
-                    (b << s->format->Bshift);
+                d = GETPIXEL(image, x+i, y+j);
+                SETPIXEL(image, x+i, y+j, GETRGB(
+                            BLEND(r, GETR(d), alpha),
+                            BLEND(g, GETG(d), alpha),
+                            BLEND(b, GETB(d), alpha)));
             }
         }
     }
 }
-#endif // USE_SDL
 
-#ifdef USE_JPEG
-
-jImagePtr read_JPEG_file (const char * filename) {
-    struct jpeg_decompress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-
-    FILE * infile;      /* source file */
-    JSAMPARRAY buffer;      /* Output row buffer */
-    int row_stride;     /* physical row width in output buffer */
-    jImagePtr image;
-
-    if ((infile = fopen(filename, "rb")) == NULL) {
-        fprintf(stderr, "can't open %s\n", filename);
-        return NULL;
-    }
-
-    cinfo.err = jpeg_std_error(&jerr);
-
-    jpeg_create_decompress(&cinfo);
-
-    jpeg_stdio_src(&cinfo, infile);
-
-    /* Seems like these return something if read is interrupted */
-    jpeg_read_header(&cinfo, TRUE);
-    jpeg_start_decompress(&cinfo);
-
-    row_stride = cinfo.output_width * cinfo.output_components;
-
-    /* Make a one-row-high sample array that will go away when done with image */
-    buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
-
-    image = create_image(cinfo.output_width, cinfo.output_height, cinfo.output_components);
-
-    while (cinfo.output_scanline < cinfo.output_height) {
-        jpeg_read_scanlines(&cinfo, buffer, 1);
-        memcpy(&image->data[(cinfo.output_scanline-1) * row_stride], buffer[0], row_stride);
-    }
-
-    jpeg_finish_decompress(&cinfo);
-
-    jpeg_destroy_decompress(&cinfo);
-
-    fclose(infile);
-
-    return image;
-}
-
-#endif // USE_JPEG
-
-#ifdef USE_PNG
-
-// Currently hardcoded for RGBA
-jImagePtr read_PNG_file(const char *file_name) {
+JImage *read_PNG_file(const char *file_name) {
     png_structp png_ptr;
     png_infop info_ptr;
     unsigned int sig_read = 0;
@@ -267,8 +202,8 @@ jImagePtr read_PNG_file(const char *file_name) {
     unsigned int png_transforms;
 
     png_bytep * row_pointers;
-    int j;
-    jImagePtr image;
+    int x, y;
+    JImage *image;
 
     if ((fp = fopen(file_name, "rb")) == NULL)
         return NULL;
@@ -307,12 +242,14 @@ jImagePtr read_PNG_file(const char *file_name) {
 
     if(png_get_bit_depth(png_ptr, info_ptr) == 8) { // only this is now supported
         // Copy data to image structure
-        image = create_image(png_get_image_width(png_ptr, info_ptr), png_get_image_height(png_ptr, info_ptr), png_get_channels(png_ptr, info_ptr));
-
+        image = create_image(png_get_image_width(png_ptr, info_ptr), png_get_image_height(png_ptr, info_ptr));
+        // png_get_channels(png_ptr, info_ptr) not needed above
         row_pointers = png_get_rows(png_ptr, info_ptr);
 
-        for(j=0; j<image->height; j++)
-            memcpy(image->data + image->width*image->components*j, row_pointers[j], image->width*image->components);
+        for(y=0; y<image->h; y++)
+            for(x=0; x<image->w; x++)
+                SETPIXEL(image, x, y, GETRGB(row_pointers[y][x*3+0],
+                            row_pointers[y][x*3+1], row_pointers[y][x*3+2]));
     } else image = NULL;
 
     png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
@@ -321,5 +258,3 @@ jImagePtr read_PNG_file(const char *file_name) {
 
     return image;
 }
-
-#endif // USE_PNG

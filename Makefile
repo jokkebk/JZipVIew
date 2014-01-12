@@ -1,7 +1,11 @@
+SDL_LIB = -LE:/Koodi/SDL2/SDL2-2.0.1/i686-w64-mingw32/lib -lSDL2main -lSDL2
+SDL_INC = -IE:/Koodi/SDL2/SDL2-2.0.1/i686-w64-mingw32/include
+Z_LIB = -LS:/Programs/MinGW/msys/1.0/local/lib -lz
+Z_INC = -IS:/Programs/MinGW/msys/1.0/local/include
+
 CC=gcc
-CFLAGS=-Wall -O3 -ISDL/include -IS:/Programs/MinGW/msys/1.0/local/include
-LIBS=-LSDL/lib -LS:/Programs/MinGW/msys/1.0/local/lib -mwindows -lmingw32 -lSDLmain -lSDL -lpng -lz -ljpeg
-ZIPLIBS=-LS:/Programs/MinGW/msys/1.0/local/lib -lz
+CFLAGS=-Wall -O3 $(SDL_INC) $(Z_INC)
+LDFLAGS = -lmingw32 -mwindows -mconsole $(SDL_LIB) -lpng $(Z_LIB) -ljpeg
 OBJECTS=main.o junzip.o image.o font.o icon.res
 
 all: jzipview.exe
@@ -13,7 +17,7 @@ clean:
 	$(RM) *.o *.exe
 
 jzipview.exe: $(OBJECTS)
-	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 %.exe: %.o
 	$(CC) $(CFLAGS) $< -o $@

@@ -25,35 +25,25 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define USE_SDL
-#define USE_PNG
-#define USE_JPEG
-
-#ifdef USE_SDL
-#include "SDL/SDL.h"
-#endif
-
-#ifdef USE_JPEG
-#include "jpeglib.h"
-#endif
-
-#ifdef USE_PNG
+#include "SDL2/SDL.h"
 #include "png.h"
-#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
-struct jImage {
-    unsigned char * data;
-    int width;
-    int height;
-    int components;
-};
+typedef struct {
+    Uint32 *data;
+    int w;
+    int h;
+} JImage;
 
-#define GETPIXEL8(img, x, y) ((img)->data[(y) * (img)->width + (x)])
-#define PUTPIXEL8(img, x, y, c) { (img)->data[(y) * (img)->width + (x)] = (c); }
+#define GETPIXEL(img, x, y) ((img)->data[(y) * (img)->w + (x)])
+#define SETPIXEL(img, x, y, c) { (img)->data[(y) * (img)->w + (x)] = (c); }
+#define GETRGB(r,g,b) (((r)<<16)+((g)<<8)+(b))
+#define GETR(rgb) (((rgb)>>16)&255)
+#define GETG(rgb) (((rgb)>>8)&255)
+#define GETB(rgb) ((rgb)&255)
 
 #ifndef MAX
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
@@ -67,36 +57,29 @@ struct jImage {
 #define SWAP(a,b,t) { t = a; a = b; b = t; }
 #endif
 
-typedef struct jImage * jImagePtr;
+JImage *create_image(int width, int height);
 
-jImagePtr create_image(int width, int height, int components);
+void destroy_image(JImage *img);
 
-void destroy_image(jImagePtr img);
-
-void copy_image(jImagePtr dest, jImagePtr src);
+void copy_image(JImage *dest, JImage *src);
 
 // rotation in 90 degree steps clockwise, 0-3
-void rotate_image(jImagePtr dest, jImagePtr src, int angle);
+void rotate_image(JImage *dest, JImage *src, int angle);
 
-void greyscale_image(jImagePtr img); // results in 32-bit RGB greyscale image
+void greyscale_image(JImage *img);
 
-void invert_image(jImagePtr img);
+void invert_image(JImage *img);
 
-void blit_font(jImagePtr image, jImagePtr letter, int x, int y, int c);
+void fill_image(JImage *img, Uint32 c);
 
-#ifdef USE_SDL
-void blit_font_SDL(SDL_Surface *s, jImagePtr mask, Uint32 *grad, int x, int y);
-Uint32 *create_gradient(SDL_Surface *s, int r, int g, int b);
-void destroy_gradient(Uint32 *gradient); 
-#endif
+void blit_image(JImage *dest, int dx, int dy, JImage *src, int sx, int sy, int w, int h);
 
-#ifdef USE_JPEG
-jImagePtr read_JPEG_file (const char * filename);
-#endif
+// Blits the whole sprite
+void blit_sprite(JImage *dest, int dx, int dy, JImage *sprite);
 
-#ifdef USE_PNG
-jImagePtr read_PNG_file (const char * filename);
-#endif
+void blit_font(JImage *image, JImage *letter, int x, int y, Uint32 c);
+
+JImage *read_PNG_file (const char * filename);
 
 #ifdef __cplusplus
 }

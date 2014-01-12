@@ -26,11 +26,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <ctype.h>
 
 #include <zlib.h>
+#include <jpeglib.h>
 
-#include "SDL/SDL.h"
-//#include "image.h"
+#include "SDL2/SDL.h"
+#include "image.h"
 #include "font.h"
 #include "junzip.h"
 
@@ -42,14 +44,13 @@ typedef struct {
     long offset;
     long size;
     unsigned char *data;
-    SDL_Surface *thumbnail;
+    JImage *thumbnail;
 } JPEGRecord;
 
 JPEGRecord *jpegs;
 int jpeg_count, thumbsLeft = 0;
 
-jFontPtr font24;
-Uint32 *grad;
+JFont *font24;
 
 /* Call this instead of exit(), so we can clean up SDL: atexit() is evil. */
 static void quit(int rc) {
@@ -67,71 +68,25 @@ void printTime(const char * message) {
     oldtime = newtime;
 }
 
-#define getR(i, x, y) (i->data[((y) * i->width + (x)) * i->components + 0])
-#define getG(i, x, y) (i->data[((y) * i->width + (x)) * i->components + 1])
-#define getB(i, x, y) (i->data[((y) * i->width + (x)) * i->components + 2])
-#define rgb(r,g,b) (((r)<<16)+((g)<<8)+(b))
-
-SDL_Surface *convert(SDL_Surface *screen, jImagePtr image) {
-    Uint32 *pixels;
-    int i, j;
-    SDL_Surface *surface;
-    SDL_PixelFormat *format = screen->format;
-
-    surface = SDL_CreateRGBSurface(0, image->width, image->height, 32,
-            format->Rmask, format->Gmask, format->Bmask, format->Amask);
-
-    pixels = (Uint32 *)surface->pixels;
-
-    if ( SDL_LockSurface(surface) < 0 ) {
-        fprintf(stderr, "Couldn't lock the display surface: %s\n",
-                SDL_GetError());
-        quit(2);
-    }
-
-    for(j=0; j<image->height; j++) {
-        for(i=0; i<image->width; i++) {
-            pixels[j * surface->w + i] = SDL_MapRGB(screen->format,
-                    getR(image, i, j), getG(image, i, j), getB(image, i, j));
-        }
-    }
-
-    SDL_UnlockSurface(surface);
-    SDL_UpdateRect(surface, 0, 0, 0, 0);
-
-    return surface;
-}
-
 // fixed point scaling with bilinear filter to given max size (w/h)
-SDL_Surface *scale(SDL_Surface *screen, jImagePtr image, int w, int h) {
-    Uint32 *pixels;
+JImage *scale(JImage *image, int w, int h) {
+    JImage *res;
     int i, j, xp, yp, w2, h2, xpart, ypart;
     int ox, oy, xs, ys; // 22.10 fixed point
     int r, g, b;
-    SDL_Surface *surface;
-    SDL_PixelFormat *format = screen->format;
 
-    if(w * image->height > image->width * h) { // screen is wider
-        xs = ys = 1024 * image->height / h;
-        w2 = image->width * h / image->height;
+    if(w * image->h > image->w * h) { // screen is wider
+        xs = ys = 1024 * image->h / h;
+        w2 = image->w * h / image->h;
         h2 = h;
     } else { // screen is higher
-        xs = ys = 1024 * image->width / w;
+        xs = ys = 1024 * image->w / w;
         w2 = w;
-        h2 = image->height * w / image->width;
+        h2 = image->h * w / image->w;
     }
 
-    //printf("Creating %d x %d surface\n", w2, h2);
-    surface = SDL_CreateRGBSurface(0, w2, h2, 32,
-            format->Rmask, format->Gmask, format->Bmask, format->Amask);
-
-    pixels = (Uint32 *)surface->pixels;
-
-    if ( SDL_LockSurface(surface) < 0 ) {
-        fprintf(stderr, "Couldn't lock the display surface: %s\n",
-                SDL_GetError());
-        quit(2);
-    }
+    //printf("Creating %d x %d res\n", w2, h2);
+    res = create_image(w2, h2);
 
     for(j=0, oy=0; j<h2; j++, oy+=ys) {
         for(i=0, ox=0; i<w2; i++, ox+=xs) {
@@ -140,37 +95,34 @@ SDL_Surface *scale(SDL_Surface *screen, jImagePtr image, int w, int h) {
             xpart = ox & 1023;
             ypart = oy & 1023;
 
-            r = ((1024-xpart) * (1024-ypart) * getR(image, xp, yp) +
-                 (xpart) * (1024-ypart) * getR(image, xp+1, yp) +
-                 (1024-xpart) * (ypart) * getR(image, xp, yp+1) +
-                 (xpart) * (ypart) * getR(image, xp+1, yp+1)) >> 20;
-            g = ((1024-xpart) * (1024-ypart) * getG(image, xp, yp) +
-                 (xpart) * (1024-ypart) * getG(image, xp+1, yp) +
-                 (1024-xpart) * (ypart) * getG(image, xp, yp+1) +
-                 (xpart) * (ypart) * getG(image, xp+1, yp+1)) >> 20;
-            b = ((1024-xpart) * (1024-ypart) * getB(image, xp, yp) +
-                 (xpart) * (1024-ypart) * getB(image, xp+1, yp) +
-                 (1024-xpart) * (ypart) * getB(image, xp, yp+1) +
-                 (xpart) * (ypart) * getB(image, xp+1, yp+1)) >> 20;
+            r = ((1024-xpart) * (1024-ypart) * GETR(GETPIXEL(image, xp, yp)) +
+                 (xpart) * (1024-ypart) * GETR(GETPIXEL(image, xp+1, yp)) +
+                 (1024-xpart) * (ypart) * GETR(GETPIXEL(image, xp, yp+1)) +
+                 (xpart) * (ypart) * GETR(GETPIXEL(image, xp+1, yp+1))) >> 20;
+            g = ((1024-xpart) * (1024-ypart) * GETG(GETPIXEL(image, xp, yp)) +
+                 (xpart) * (1024-ypart) * GETG(GETPIXEL(image, xp+1, yp)) +
+                 (1024-xpart) * (ypart) * GETG(GETPIXEL(image, xp, yp+1)) +
+                 (xpart) * (ypart) * GETG(GETPIXEL(image, xp+1, yp+1))) >> 20;
+            b = ((1024-xpart) * (1024-ypart) * GETB(GETPIXEL(image, xp, yp)) +
+                 (xpart) * (1024-ypart) * GETB(GETPIXEL(image, xp+1, yp)) +
+                 (1024-xpart) * (ypart) * GETB(GETPIXEL(image, xp, yp+1)) +
+                 (xpart) * (ypart) * GETB(GETPIXEL(image, xp+1, yp+1))) >> 20;
 
-            pixels[j * surface->w + i] = rgb(r,g,b);
+            res->data[j * res->w + i] = GETRGB(r,g,b);
         }
     }
 
-    SDL_UnlockSurface(surface);
-    SDL_UpdateRect(surface, 0, 0, 0, 0);
-
-    return surface;
+    return res;
 }
 
-jImagePtr read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
+JImage *read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
         int tx, int ty) {
     struct jpeg_decompress_struct cinfo;
     struct jpeg_error_mgr jerr;
 
     JSAMPARRAY buffer;      /* Output row buffer */
-    int row_stride;     /* physical row width in output buffer */
-    jImagePtr image;
+    int row_stride, x, y;     /* physical row width in output buffer */
+    JImage *image;
 
     cinfo.err = jpeg_std_error(&jerr);
 
@@ -205,11 +157,13 @@ jImagePtr read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
     /* Make a one-row-high sample array that will go away when done with image */
     buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
 
-    image = create_image(cinfo.output_width, cinfo.output_height, cinfo.output_components);
+    image = create_image(cinfo.output_width, cinfo.output_height);
 
-    while (cinfo.output_scanline < cinfo.output_height) {
+    for(y=0; cinfo.output_scanline < cinfo.output_height; y++) {
         jpeg_read_scanlines(&cinfo, buffer, 1);
-        memcpy(&image->data[(cinfo.output_scanline-1) * row_stride], buffer[0], row_stride);
+        for(x=0; x<image->w; x++)
+            image->data[image->w * y + x] = GETRGB(buffer[0][x*3+0],
+                        buffer[0][x*3+1], buffer[0][x*3+2]);
     }
 
     jpeg_finish_decompress(&cinfo);
@@ -219,11 +173,10 @@ jImagePtr read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
     return image;
 }
 
-SDL_Surface *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, SDL_Surface *screen, int tx, int ty) {
+JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int tx, int ty) {
     JZFileHeader header;
     char filename[1024];
-    jImagePtr image = NULL;
-    SDL_Surface *surface = NULL;
+    JImage *image = NULL, *t;
 
     fseek(zip, jpeg->offset, SEEK_SET);
 
@@ -239,15 +192,14 @@ SDL_Surface *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, SDL_Surface *screen, 
 
     if(jzReadData(zip, &header, jpeg->data) == Z_OK) {
         image = read_JPEG_custom(jpeg->data, jpeg->size, tx, ty);
-        if(tx && ty)
-            surface = scale(screen, image,
-                    tx ? tx : image->width, ty ? ty : image->height);
-        else
-            surface = convert(screen, image);
-        destroy_image(image);
+        if(tx && ty) {
+            t = scale(image, tx ? tx : image->w, ty ? ty : image->h);
+            destroy_image(image);
+            image = t;
+        }
     }
 
-    return surface;
+    return image;
 }
 
 // Caseless comparison of haystack end to lowercase needle
@@ -307,47 +259,28 @@ int processZip(FILE *zip) {
     return 0;
 }
 
-void drawImage(SDL_Surface *screen, SDL_Surface *surface, int xoff, int yoff) {
-    SDL_Rect srect, drect;
+void drawImage(JImage *screen, JImage *image, int xoff, int yoff) {
+    int dx = 0, dy = 0;
 
-    srect.w = surface->w;
-    srect.h = surface->h;
+    if(screen->w > image->w) // center if fits
+        dx = (screen->w - image->w) / 2;
 
-    if(screen->w > surface->w) { // center if fits
-        drect.x = (screen->w - surface->w) / 2;
-        srect.x = 0;
-    } else {
-        drect.x = 0;
-        srect.x = xoff;
-        srect.w -= xoff;
-    }
+    if(screen->h > image->h) // center if fits
+        dy = (screen->h - image->h) / 2;
 
-    if(screen->h > surface->h) { // center if fits
-        drect.y = (screen->h - surface->h) / 2;
-        srect.y = 0;
-    } else {
-        drect.y = 0;
-        srect.y = yoff;
-        srect.h -= yoff;
-    }
+    if(dx || dy)
+        fill_image(screen, 0);
 
-    //printf("Drawing %d x %d pixels from (%d, %d) to (%d, %d)\n",
-    //        srect.w, srect.h, srect.x, srect.y, drect.x, drect.y);
-
-    if(drect.x || drect.y)
-        SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 0));
-    SDL_BlitSurface(surface, &srect, screen, &drect);
-    SDL_UpdateRect(screen, 0, 0, 0, 0);
+    blit_image(screen, dx, dy, image, xoff, yoff, image->w, image->h);
 }
 
-void drawThumbs(SDL_Surface *screen, jFontPtr font, Uint32 *grad, int tx, int ty, int topleft) {
-    SDL_Rect src, dest;
-    SDL_Surface *thumb;
+void drawThumbs(JImage *screen, JFont *font, Uint32 c, int tx, int ty, int topleft) {
+    JImage *thumb;
     int tw = screen->w / tx, th = screen->h / ty;
     int i, j, idx;
     char num[6];
 
-    SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, thumbsLeft ? 128 : 0, 0, 0));
+    fill_image(screen, thumbsLeft ? GETRGB(80,0,0) : 0);
 
     for(j = 0; j < ty; j++) {
         for(i = 0; i < tx; i++) {
@@ -357,42 +290,31 @@ void drawThumbs(SDL_Surface *screen, jFontPtr font, Uint32 *grad, int tx, int ty
                 break; // done
 
             if((thumb = jpegs[idx].thumbnail)) {
-                dest.x = tw * i;
-                dest.y = th * j;
-                src.y = src.x = 0;
-                src.w = dest.w = thumb->w;
-                src.h = dest.h = thumb->h;
-                SDL_BlitSurface(thumb, NULL, screen, &dest);
+                blit_sprite(screen, tw * i, th * j, thumb);
             } else {
-                if ( SDL_LockSurface(screen) < 0 ) {
-                    fprintf(stderr, "Couldn't lock the display surface: %s\n",
-                            SDL_GetError());
-                    quit(2);
-                }
-
                 sprintf(num, "%d", idx + 1);
-                write_font_SDL(screen, font, grad, num,
+                write_font(screen, font, 0xFFFFFF, num,
                         tw * i + tw / 2,
                         th * j + th / 2,
                         FONT_ALIGN_MIDDLE + FONT_ALIGN_CENTER, 2);
-
-                SDL_UnlockSurface(screen);
             }
         }
     }
-
-    SDL_UpdateRect(screen, 0, 0, 0, 0);
 }
 
 int main(int argc, char *argv[]) {
+    SDL_Window *window;
+    SDL_Renderer *renderer;
+    SDL_Texture *texture;
+    JImage *screen;
+    int x, y;
     char fontname[1024];
     FILE *zip;
-    SDL_Surface *screen;
     JPEGRecord *jpeg;
     SDL_Event event;
     int done = 0, redraw = 1, tx = 8, ty = 5, i, xoff = 0, yoff = 0,
         currentImage = 0, loadedFullscreen = -1, loadedFullsize = -1;
-    SDL_Surface *fullscreen = NULL, *fullsize = NULL;
+    JImage *fullscreen = NULL, *fullsize = NULL;
     enum { MODE_THUMBS, MODE_FULLSCREEN, MODE_FULLSIZE } mode = MODE_THUMBS;
 
     if(argc < 2) {
@@ -422,49 +344,74 @@ int main(int argc, char *argv[]) {
     font24 = create_font(read_PNG_file(fontname),
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-+.,:;!?'/&()=", 4);
 
-    // initialize SDL
-    if(SDL_Init(SDL_INIT_VIDEO) < 0) {
-        fprintf(stderr, "Couldn't initialize SDL: %s\n",SDL_GetError());
-        return(1);
+    if(SDL_Init(SDL_INIT_EVERYTHING) != 0) {
+        printf("SDL_Init Error: %s\n", SDL_GetError());
+        return 1;
     }
+
+    window = SDL_CreateWindow("JZipView",
+            SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+            0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    if(window == NULL) {
+        printf("SDL_CreateWindow Error: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    renderer = SDL_CreateRenderer(window, -1, 0);
+    if(renderer == NULL) {
+        printf("SDL_CreateRenderer Error: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    // Initialize raw pixel surface for rendering
+    SDL_GetRendererOutputSize(renderer, &x, &y);
+    screen = create_image(x, y);
+    if(screen == NULL) {
+        printf("SDL_CreateRenderer Error: %s\n", SDL_GetError());
+        quit(1);
+    }
+
+    texture = SDL_CreateTexture(renderer,
+            SDL_PIXELFORMAT_ARGB8888,
+            SDL_TEXTUREACCESS_STREAMING,
+            screen->w, screen->h);
 
     processZip(zip);
     thumbsLeft = jpeg_count;
 
-    if((screen=SDL_SetVideoMode(0, 0, 32, SDL_FULLSCREEN + SDL_SWSURFACE)) == NULL ) {
-    //if((screen=SDL_SetVideoMode(1600, 1200, 32, SDL_SWSURFACE)) == NULL ) {
-        fprintf(stderr, "Couldn't set video mode: %s\n", SDL_GetError());
-        quit(2);
-    }
-
     tx = screen->w / THUMB_W;
     ty = screen->h / THUMB_H;
 
-    SDL_WM_SetCaption("JZipView", "JZipView");
-    SDL_EnableUNICODE(1);
-
-    grad = create_gradient(screen, 255, 255, 255);
-
+        for(y=0; y<screen->h; y++)
+            for(x=0; x<screen->w; x++)
+                screen->data[screen->w * y + x] = GETRGB(x,y,0); //rand(); //SETPIXEL(screen, x, y, rand());
+        greyscale_image(screen);
     // main loop
     while(!done) {
+        SDL_UpdateTexture(texture, NULL, screen->data, screen->w * sizeof (Uint32));
+
+        //SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        //SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, texture, NULL, NULL);
+        SDL_RenderPresent(renderer);
+
         if(mode == MODE_FULLSCREEN && loadedFullscreen != currentImage) {
             if(fullscreen != NULL)
-                SDL_FreeSurface(fullscreen);
-            fullscreen = loadImageFromZip(zip, jpegs+currentImage, screen,
-                    screen->w, screen->h);
+                destroy_image(fullscreen);
+            fullscreen = loadImageFromZip(zip, jpegs+currentImage, screen->w, screen->h);
             loadedFullscreen = currentImage;
         } else if(mode == MODE_FULLSIZE && loadedFullsize != currentImage) {
             if(fullsize != NULL)
-                SDL_FreeSurface(fullsize);
-            fullsize = loadImageFromZip(zip, jpegs+currentImage, screen, 0, 0);
+                destroy_image(fullsize);
+            fullsize = loadImageFromZip(zip, jpegs+currentImage, 0, 0);
             loadedFullsize = currentImage;
         } else if(thumbsLeft) {
             for(i = 0; i < jpeg_count; i++) {
                 jpeg = &jpegs[(currentImage + i) % jpeg_count];
                 if(jpeg->thumbnail != NULL) continue;
-                jpeg->thumbnail = loadImageFromZip(zip, jpeg, screen,
-                        screen->w / tx, screen->h / ty);
+                jpeg->thumbnail = loadImageFromZip(zip, jpeg, screen->w / tx, screen->h / ty);
                 thumbsLeft--;
+                //printf("Read %d x %d thumbnail, %d left\n", jpeg->thumbnail->w, jpeg->thumbnail->h, thumbsLeft);
                 redraw = 1;
                 break;
             }
@@ -473,7 +420,7 @@ int main(int argc, char *argv[]) {
         if(redraw) {
             switch(mode) {
                 case MODE_THUMBS:
-                    drawThumbs(screen, font24, grad, tx, ty, currentImage);
+                    drawThumbs(screen, font24, 0xFFFFFF, tx, ty, currentImage);
                     break;
                 case MODE_FULLSCREEN:
                     drawImage(screen, fullscreen, 0, 0);
@@ -514,28 +461,6 @@ int main(int argc, char *argv[]) {
                             SDL_ShowCursor(mode == MODE_THUMBS ? 1 : 0);
                             redraw = 1;
                             break;
-                        case SDL_BUTTON_WHEELUP:
-                            if(mode == MODE_THUMBS) {
-                                currentImage -= tx;
-                                if(currentImage < 0)
-                                    currentImage = 0;
-                            } else {
-                                if(currentImage)
-                                    currentImage--;
-                            }
-                            redraw = 1;
-                            break;
-                        case SDL_BUTTON_WHEELDOWN:
-                            if(mode == MODE_THUMBS) {
-                                if(currentImage + tx * ty >= jpeg_count)
-                                    break;
-                                currentImage += tx;
-                            } else {
-                                if(++currentImage >= jpeg_count)
-                                    currentImage = jpeg_count - 1;
-                            }
-                            redraw = 1;
-                            break;
                     }
                     break;
 
@@ -551,22 +476,48 @@ int main(int argc, char *argv[]) {
                     }
                     break;
 
+                case SDL_MOUSEWHEEL:
+                    if(event.wheel.y > 0) {
+                        if(mode == MODE_THUMBS) {
+                            currentImage -= tx;
+                            if(currentImage < 0)
+                                currentImage = 0;
+                        } else {
+                            if(currentImage)
+                                currentImage--;
+                        }
+                        redraw = 1;
+                    }
+                    if(event.wheel.y < 0) {
+                        if(mode == MODE_THUMBS) {
+                            if(currentImage + tx * ty >= jpeg_count)
+                                break;
+                            currentImage += tx;
+                        } else {
+                            if(++currentImage >= jpeg_count)
+                                currentImage = jpeg_count - 1;
+                        }
+                        redraw = 1;
+                    }
+                    break;
+
                 case SDL_KEYDOWN:
                     //printf("Key down: '%c' (%d)\n", event.key.keysym.unicode, event.key.keysym.unicode);
                     //More examples at jpeg2sgf source main.cc
                     switch(event.key.keysym.sym) {
                         case SDLK_ESCAPE:
+                        case SDLK_q: case SDLK_x:
+                            done = 1;
+                            break;
                         case SDLK_SPACE:
                         case SDLK_LEFT:
                         case SDLK_RIGHT:
                         case SDLK_UP:
                         case SDLK_DOWN:
-                        case SDLK_q:
                         case SDLK_RETURN:
                         case SDLK_BACKSPACE:
                         case SDL_QUIT:
                         default:
-                            done = 1;
                             break;
                     } // end switch(event.key.keysym.sym)
                     break;
@@ -574,9 +525,11 @@ int main(int argc, char *argv[]) {
         } // end while(SDL_PollEvent(&event))
     } // end while(!done)
 
-    destroy_gradient(grad);
-
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
     SDL_Quit();
+
+    destroy_image(screen);
 
     destroy_font(font24);
 
