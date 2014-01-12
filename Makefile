@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-Wall -O3 -ISDL/include -IS:/Programs/MinGW/msys/1.0/local/include
-LIBS=-LSDL/lib -LS:/Programs/MinGW/msys/1.0/local/lib -mwindows -lmingw32 -lSDLmain -lSDL -lpng -lz -ljpeg -lstdc++
+LIBS=-LSDL/lib -LS:/Programs/MinGW/msys/1.0/local/lib -mwindows -lmingw32 -lSDLmain -lSDL -lpng -lz -ljpeg
 ZIPLIBS=-LS:/Programs/MinGW/msys/1.0/local/lib -lz
 OBJECTS=main.o junzip.o image.o font.o
 
