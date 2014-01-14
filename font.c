@@ -83,7 +83,7 @@ JFont *create_font(JImage *font, const char * letter_list, int space_width) {
     }
 
     if(letters != (int)strlen(letter_list)) {
-        printf("Invalid amount of letters: %d found, %d expected!\n", letters, strlen(letter_list));
+        printf("Invalid amount of letters: %d found, %d expected!\n", (int)letters, (int)strlen(letter_list));
         return NULL;
     }
 
