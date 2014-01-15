@@ -1,0 +1,30 @@
+SDL_LIB = -LE:/SDL/DIR/HERE -lSDL2main -lSDL2
+SDL_INC = -IE:/SDL/INCLUDE/DIR/HERE
+Z_LIB = -LS:/ZLIB/DIR/HERE -lz
+Z_INC = -IS:/ZLIB/INCLUDE/DIR/HERE
+
+CC=gcc
+CFLAGS=-Wall -O3 $(SDL_INC) $(Z_INC)
+LDFLAGS = $(SDL_LIB) -lpng $(Z_LIB) -ljpeg
+OBJECTS=main.o junzip.o image.o font.o
+
+all: jzipview
+
+run: jzipview
+	./$^ test.zip
+	
+clean:
+	$(RM) *.o *.exe
+
+jzipview: $(OBJECTS)
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
+
+%.exe: %.o
+	$(CC) $(CFLAGS) $< -o $@
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Small helpers to make point.hpp inline changes also recompile these files
+image.o: image.c image.h
+font.o: font.c font.h
