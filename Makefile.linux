@@ -1,22 +1,26 @@
-SDL_LIB = -LE:/SDL/DIR/HERE -lSDL2main -lSDL2
-SDL_INC = -IE:/SDL/INCLUDE/DIR/HERE
-Z_LIB = -LS:/ZLIB/DIR/HERE -lz
-Z_INC = -IS:/ZLIB/INCLUDE/DIR/HERE
+# On Linux if you install libraries via package manager, no include
+# directory (-I/some/dir/include) or library search path (-L/some/lib)
+# definitions are needed
+SDL_LIB = -lSDL2main -lSDL2
+SDL_INC =
+Z_LIB = -lz
+Z_INC =
 
 CC=gcc
 CFLAGS=-Wall -O3 $(SDL_INC) $(Z_INC)
 LDFLAGS = $(SDL_LIB) -lpng $(Z_LIB) -ljpeg
 OBJECTS=main.o junzip.o image.o font.o
+EXE=jzipview
 
-all: jzipview
+all: $(EXE)
 
-run: jzipview
+run: $(EXE)
 	./$^ test.zip
 	
 clean:
-	$(RM) *.o *.exe
+	$(RM) *.o $(EXE)
 
-jzipview: $(OBJECTS)
+$(EXE): $(OBJECTS)
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 %.exe: %.o
