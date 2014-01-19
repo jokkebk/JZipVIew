@@ -1,5 +1,5 @@
 *.o
-*.exe
 *.dll
 *.zip
-
+jzipview.exe
+jzipview
