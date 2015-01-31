@@ -180,7 +180,7 @@ JImage *read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
     return image;
 }
 
-JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int sx, int sy) {
+JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int sx, int sy, int stretch) {
     JZFileHeader header;
     JImage *image = NULL, *t;
 
@@ -206,7 +206,7 @@ JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int sx, int sy) {
 
     image = read_JPEG_custom(jpeg->data, jpeg->size, sx, sy);
 
-    if(sx && sy) {
+    if(sx && sy && stretch) {
         t = scale(image, sx ? sx : image->w, sy ? sy : image->h);
         destroy_image(image);
         image = t;
@@ -328,7 +328,7 @@ int main(int argc, char *argv[]) {
     JPEGRecord *jpeg;
     SDL_Event event;
     int done = 0, redraw = 1, tx = 8, ty = 5, i, xoff = 0, yoff = 0,
-        currentImage = 0, loadedFullscreen = -1, loadedFullsize = -1;
+        currentImage = 0, earlierImage = 0, loadedFullscreen = -1, loadedFullsize = -1;
     JImage *fullscreen = NULL, *fullsize = NULL;
     enum { MODE_THUMBS, MODE_FULLSCREEN, MODE_FULLSIZE } mode = MODE_THUMBS;
 
@@ -411,18 +411,18 @@ int main(int argc, char *argv[]) {
         if(mode == MODE_FULLSCREEN && loadedFullscreen != currentImage) {
             if(fullscreen != NULL)
                 destroy_image(fullscreen);
-            fullscreen = loadImageFromZip(zip, jpegs+currentImage, screen->w, screen->h);
+            fullscreen = loadImageFromZip(zip, jpegs+currentImage, screen->w, screen->h, 0);
             loadedFullscreen = currentImage;
         } else if(mode == MODE_FULLSIZE && loadedFullsize != currentImage) {
             if(fullsize != NULL)
                 destroy_image(fullsize);
-            fullsize = loadImageFromZip(zip, jpegs+currentImage, 0, 0);
+            fullsize = loadImageFromZip(zip, jpegs+currentImage, 0, 0, 0);
             loadedFullsize = currentImage;
         } else if(thumbsLeft) {
             for(i = 0; i < jpeg_count; i++) {
                 jpeg = &jpegs[(currentImage + i) % jpeg_count];
                 if(jpeg->thumbnail != NULL) continue;
-                jpeg->thumbnail = loadImageFromZip(zip, jpeg, screen->w / tx, screen->h / ty);
+                jpeg->thumbnail = loadImageFromZip(zip, jpeg, screen->w / tx, screen->h / ty, 1);
                 thumbsLeft--;
                 redraw = 1;
                 break;
@@ -450,6 +450,7 @@ int main(int argc, char *argv[]) {
                     switch(event.button.button) {
                         case SDL_BUTTON_LEFT:
                             if(mode == MODE_THUMBS) {
+                                earlierImage = currentImage; // store where we were
                                 currentImage = event.button.x / THUMB_W +
                                     tx * (event.button.y / THUMB_H) + currentImage;
                                 mode = MODE_FULLSCREEN;
@@ -464,8 +465,12 @@ int main(int argc, char *argv[]) {
                                 done = 1;
                             } else if(mode == MODE_FULLSIZE) {
                                 mode = MODE_FULLSCREEN;
-                            } else {
-                                currentImage -= currentImage % tx + ty / 2 * tx;
+                            } else { // Back to thumbnails
+                                if(earlierImage <= currentImage && currentImage < earlierImage + tx*ty)
+                                    currentImage = earlierImage; // restore previous thumbnail location
+                                else
+                                    currentImage -= currentImage % tx + ty / 2 * tx; // center to current image
+
                                 if(currentImage < 0)
                                     currentImage = 0;
                                 mode = MODE_THUMBS;
