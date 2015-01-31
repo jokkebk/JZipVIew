@@ -21,6 +21,8 @@
  */
 #if defined _WIN32 || defined _WIN64
 #include "windows.h"
+
+#define HAVE_BOOLEAN /* Fix jpeglib */
 #endif
 
 #include <stdio.h>
@@ -30,6 +32,7 @@
 #include <stdarg.h>
 
 #include <zlib.h>
+
 #include <jpeglib.h>
 
 #include "SDL2/SDL.h"
@@ -371,7 +374,10 @@ int main(int argc, char *argv[]) {
             SDL_TEXTUREACCESS_STREAMING,
             screen->w, screen->h);
 
-    processZip(zip);
+    if(processZip(zip)) {
+        quit(1);
+    }
+
     thumbsLeft = jpeg_count;
 
     tx = screen->w / THUMB_W;
