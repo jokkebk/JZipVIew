@@ -1,10 +1,11 @@
 ifeq ($(OS),Windows_NT)
 	include Makefile.Win
 else
+	UNAME_S := $(shell uname -s)
 	ifeq ($(UNAME_S),Linux)
 		include Makefile.Linux
-    endif
-    ifeq ($(UNAME_S),Darwin)
+	endif
+ifeq ($(UNAME_S),Darwin)
 		include Makefile.OSX
-    endif
+	endif
 endif
