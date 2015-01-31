@@ -46,7 +46,7 @@
 typedef struct {
     char *filename;
     long offset;
-    long size;
+    long size, compressedSize;
     unsigned char *data;
     JImage *thumbnail;
 } JPEGRecord;
@@ -76,27 +76,33 @@ static void writeMessage(int flags, char *title, char *format, ...) {
 JImage *scale(JImage *image, int w, int h) {
     JImage *res;
     int i, j, xp, yp, w2, h2, xpart, ypart;
-    int ox, oy, xs, ys; // 22.10 fixed point
+    int ox, oy, step; // 22.10 fixed point
     int r, g, b;
 
     if(w * image->h > image->w * h) { // screen is wider
-        xs = ys = 1024 * image->h / h;
+        step = 1024 * image->h / h;
         w2 = image->w * h / image->h;
         h2 = h;
     } else { // screen is higher
-        xs = ys = 1024 * image->w / w;
+        step = 1024 * image->w / w;
         w2 = w;
         h2 = image->h * w / image->w;
     }
 
-    res = create_image(w2, h2);
+    if((res = create_image(w2, h2)) == NULL) {
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't allocate memory for scaled image!\n");
+        quit(1);
+    }
 
-    for(j=0, oy=0; j<h2; j++, oy+=ys) {
-        for(i=0, ox=0; i<w2; i++, ox+=xs) {
+    for(j=0, oy=0; j<h2; j++, oy+=step) {
+        yp = oy >> 10;
+        ypart = oy & 1023;
+        if(yp + 1 >= image->h) break;
+
+        for(i=0, ox=0; i<w2; i++, ox+=step) {
             xp = ox >> 10;
-            yp = oy >> 10;
             xpart = ox & 1023;
-            ypart = oy & 1023;
+            if(xp + 1 >= image->w) break;
 
             r = ((1024-xpart) * (1024-ypart) * GETR(GETPIXEL(image, xp, yp)) +
                  (xpart) * (1024-ypart) * GETR(GETPIXEL(image, xp+1, yp)) +
@@ -155,7 +161,10 @@ JImage *read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
     /* Make a one-row-high sample array that will go away when done with image */
     buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
 
-    image = create_image(cinfo.output_width, cinfo.output_height);
+    if((image = create_image(cinfo.output_width, cinfo.output_height)) == NULL) {
+        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't allocate memory for scaled image!\n");
+        quit(1);
+    }
 
     for(y=0; cinfo.output_scanline < cinfo.output_height; y++) {
         jpeg_read_scanlines(&cinfo, buffer, 1);
@@ -171,30 +180,36 @@ JImage *read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
     return image;
 }
 
-JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int tx, int ty) {
+JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int sx, int sy) {
     JZFileHeader header;
-    char filename[1024];
     JImage *image = NULL, *t;
 
-    fseek(zip, jpeg->offset, SEEK_SET);
+    if(jpeg->data == NULL) {
+        fseek(zip, jpeg->offset, SEEK_SET);
 
-    if(jzReadLocalFileHeader(zip, &header, filename, sizeof(filename))) {
-        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't read local file header!");
-        quit(1);
-    }
-
-    if((jpeg->data = (unsigned char *)malloc(jpeg->size)) == NULL) {
-        writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't allocate memory!");
-        quit(1);
-    }
-
-    if(jzReadData(zip, &header, jpeg->data) == Z_OK) {
-        image = read_JPEG_custom(jpeg->data, jpeg->size, tx, ty);
-        if(tx && ty) {
-            t = scale(image, tx ? tx : image->w, ty ? ty : image->h);
-            destroy_image(image);
-            image = t;
+        if(jzReadLocalFileHeader(zip, &header, NULL, 0)) { // don't re-read filename
+            writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't read local file header!");
+            quit(1);
         }
+
+
+        if((jpeg->data = (unsigned char *)malloc(jpeg->size)) == NULL) {
+            writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't allocate memory!");
+            quit(1);
+        }
+
+        if(jzReadData(zip, &header, jpeg->data) != Z_OK) {
+            writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't read/uncompress JPEG!");
+            quit(1);
+        }
+    }
+
+    image = read_JPEG_custom(jpeg->data, jpeg->size, sx, sy);
+
+    if(sx && sy) {
+        t = scale(image, sx ? sx : image->w, sy ? sy : image->h);
+        destroy_image(image);
+        image = t;
     }
 
     return image;
@@ -223,6 +238,8 @@ int recordCallback(FILE *zip, int idx, JZFileHeader *header, char *filename) {
 
     jpeg->offset = header->offset;
     jpeg->size = header->uncompressedSize;
+    jpeg->compressedSize = header->compressedSize;
+    jpeg->data = NULL;
     jpeg->thumbnail = NULL;
     jpeg->filename = (char *)malloc(strlen(filename)+1);
 
@@ -363,8 +380,7 @@ int main(int argc, char *argv[]) {
 
     // Initialize raw pixel surface for rendering
     SDL_GetRendererOutputSize(renderer, &x, &y);
-    screen = create_image(x, y);
-    if(screen == NULL) {
+    if((screen = create_image(x, y)) == NULL) {
         writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "SDL_CreateRenderer Error: %s\n", SDL_GetError());
         quit(1);
     }
@@ -462,6 +478,7 @@ int main(int argc, char *argv[]) {
 
                 case SDL_MOUSEBUTTONUP:
                     break;
+
                 case SDL_MOUSEMOTION:
                     if(mode == MODE_FULLSIZE) {
                         xoff = (fullsize->w <= screen->w) ? 0 :
