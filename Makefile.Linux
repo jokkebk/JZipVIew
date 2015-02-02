@@ -1,7 +1,7 @@
 # On Linux if you install libraries via package manager, no include
 # directory (-I/some/dir/include) or library search path (-L/some/lib)
 # definitions are needed
-SDL_LIB = -lSDL2main -lSDL2
+SDL_LIB = -lSDL2
 SDL_INC =
 Z_LIB = -lz
 Z_INC =
