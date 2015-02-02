@@ -35,6 +35,10 @@
 
 #include <jpeglib.h>
 
+#if defined _WIN32 || defined _WIN64
+#undef HAVE_STDDEF_H /* Fix SDL warning */
+#endif
+
 #include "SDL2/SDL.h"
 #include "image.h"
 #include "font.h"
@@ -206,7 +210,7 @@ JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int sx, int sy, int stretc
 
     image = read_JPEG_custom(jpeg->data, jpeg->size, sx, sy);
 
-    if(sx && sy && stretch) {
+    if(sx && sy && (image->w > sx || image->h > sy || stretch)) {
         t = scale(image, sx ? sx : image->w, sy ? sy : image->h);
         destroy_image(image);
         image = t;
@@ -400,7 +404,7 @@ int main(int argc, char *argv[]) {
     ty = screen->h / THUMB_H;
 
     // main loop
-    while(!done) {
+    while(done < 2) {
         SDL_UpdateTexture(texture, NULL, screen->data, screen->w * sizeof (Uint32));
 
         //SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -453,7 +457,10 @@ int main(int argc, char *argv[]) {
                                 earlierImage = currentImage; // store where we were
                                 currentImage = event.button.x / THUMB_W +
                                     tx * (event.button.y / THUMB_H) + currentImage;
-                                mode = MODE_FULLSCREEN;
+                                if(currentImage < jpeg_count) // clicked on a thumbnail
+                                    mode = MODE_FULLSCREEN;
+                                else // clicked on empty area
+                                    currentImage = earlierImage; // 
                             } else if(mode == MODE_FULLSCREEN) {
                                 mode = MODE_FULLSIZE;
                             }
@@ -461,11 +468,11 @@ int main(int argc, char *argv[]) {
                             redraw = 1;
                             break;
                         case SDL_BUTTON_RIGHT:
-                            if(mode == MODE_THUMBS) {
-                                done = 1;
-                            } else if(mode == MODE_FULLSIZE) {
+                            if(mode == MODE_THUMBS) // trigger on mouseup so it won't go to O/S after exit
+                                done = 1; // will transition to done = 2 on mouseup
+                            else if(mode == MODE_FULLSIZE) {
                                 mode = MODE_FULLSCREEN;
-                            } else { // Back to thumbnails
+                            } else if(mode == MODE_FULLSCREEN) { // Back to thumbnails
                                 if(earlierImage <= currentImage && currentImage < earlierImage + tx*ty)
                                     currentImage = earlierImage; // restore previous thumbnail location
                                 else
@@ -482,6 +489,12 @@ int main(int argc, char *argv[]) {
                     break;
 
                 case SDL_MOUSEBUTTONUP:
+                    switch(event.button.button) {
+                        case SDL_BUTTON_RIGHT:
+                            if(mode == MODE_THUMBS && done)
+                                done = 2;
+                            break;
+                    }
                     break;
 
                 case SDL_MOUSEMOTION:
@@ -523,7 +536,7 @@ int main(int argc, char *argv[]) {
                     switch(event.key.keysym.sym) {
                         case SDLK_ESCAPE:
                         case SDLK_q: case SDLK_x:
-                            done = 1;
+                            done = 2;
                             break;
                         case SDLK_SPACE:
                         case SDLK_LEFT:
