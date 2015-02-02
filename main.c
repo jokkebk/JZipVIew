@@ -331,7 +331,7 @@ int main(int argc, char *argv[]) {
     FILE *zip;
     JPEGRecord *jpeg;
     SDL_Event event;
-    int done = 0, redraw = 1, tx = 8, ty = 5, i, xoff = 0, yoff = 0,
+    int done = 0, redraw = 1, tx = 8, ty = 5, i, j, xoff = 0, yoff = 0,
         currentImage = 0, earlierImage = 0, loadedFullscreen = -1, loadedFullsize = -1;
     JImage *fullscreen = NULL, *fullsize = NULL;
     enum { MODE_THUMBS, MODE_FULLSCREEN, MODE_FULLSIZE } mode = MODE_THUMBS;
@@ -424,11 +424,13 @@ int main(int argc, char *argv[]) {
             loadedFullsize = currentImage;
         } else if(thumbsLeft) {
             for(i = 0; i < jpeg_count; i++) {
-                jpeg = &jpegs[(currentImage + i) % jpeg_count];
+                j = (currentImage + i) % jpeg_count;
+                jpeg = &jpegs[j];
                 if(jpeg->thumbnail != NULL) continue;
                 jpeg->thumbnail = loadImageFromZip(zip, jpeg, screen->w / tx, screen->h / ty, 1);
                 thumbsLeft--;
-                redraw = 1;
+                if(mode == MODE_THUMBS && j >= currentImage && j < currentImage + tx*ty)
+                    redraw = 1; // load affected current view
                 break;
             }
         }
