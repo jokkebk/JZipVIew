@@ -405,13 +405,6 @@ int main(int argc, char *argv[]) {
 
     // main loop
     while(done < 2) {
-        SDL_UpdateTexture(texture, NULL, screen->data, screen->w * sizeof (Uint32));
-
-        //SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-        //SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, texture, NULL, NULL);
-        SDL_RenderPresent(renderer);
-
         if(mode == MODE_FULLSCREEN && loadedFullscreen != currentImage) {
             if(fullscreen != NULL)
                 destroy_image(fullscreen);
@@ -447,6 +440,11 @@ int main(int argc, char *argv[]) {
                     drawImage(screen, fullsize, xoff, yoff);
                     break;
             }
+            SDL_UpdateTexture(texture, NULL, screen->data, screen->w * sizeof (Uint32));
+            //SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+            //SDL_RenderClear(renderer);
+            SDL_RenderCopy(renderer, texture, NULL, NULL);
+            SDL_RenderPresent(renderer);
             redraw = 0;
         }
 
@@ -463,7 +461,7 @@ int main(int argc, char *argv[]) {
                                     mode = MODE_FULLSCREEN;
                                 else // clicked on empty area
                                     currentImage = earlierImage; // 
-                            } else if(mode == MODE_FULLSCREEN) {
+                            } else if(mode == MODE_FULLSCREEN && (fullscreen->w > screen->w || fullscreen->h > screen->h)) {
                                 mode = MODE_FULLSIZE;
                             }
                             SDL_ShowCursor(mode == MODE_THUMBS ? 1 : 0);
