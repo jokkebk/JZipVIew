@@ -184,7 +184,7 @@ JImage *read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
     return image;
 }
 
-JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int sx, int sy, int stretch) {
+JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int destx, int desty) {
     JZFileHeader header;
     JImage *image = NULL, *t;
 
@@ -210,8 +210,8 @@ JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int sx, int sy, int stretc
 
     image = read_JPEG_custom(jpeg->data, jpeg->size, sx, sy);
 
-    if(sx && sy && (image->w > sx || image->h > sy || stretch)) {
-        t = scale(image, sx ? sx : image->w, sy ? sy : image->h);
+    if(destx && desty) { // stretch/shrink
+        t = scale(image, destx, desty);
         destroy_image(image);
         image = t;
     }
@@ -408,19 +408,19 @@ int main(int argc, char *argv[]) {
         if(mode == MODE_FULLSCREEN && loadedFullscreen != currentImage) {
             if(fullscreen != NULL)
                 destroy_image(fullscreen);
-            fullscreen = loadImageFromZip(zip, jpegs+currentImage, screen->w, screen->h, 0);
+            fullscreen = loadImageFromZip(zip, jpegs+currentImage, screen->w, screen->h);
             loadedFullscreen = currentImage;
         } else if(mode == MODE_FULLSIZE && loadedFullsize != currentImage) {
             if(fullsize != NULL)
                 destroy_image(fullsize);
-            fullsize = loadImageFromZip(zip, jpegs+currentImage, 0, 0, 0);
+            fullsize = loadImageFromZip(zip, jpegs+currentImage, 0, 0);
             loadedFullsize = currentImage;
         } else if(thumbsLeft && mode != MODE_FULLSIZE) { // don't load thumbs when in fullsize, too slow
             for(i = 0; i < jpeg_count; i++) {
                 j = (currentImage + i) % jpeg_count;
                 jpeg = &jpegs[j];
                 if(jpeg->thumbnail != NULL) continue;
-                jpeg->thumbnail = loadImageFromZip(zip, jpeg, screen->w / tx, screen->h / ty, 1);
+                jpeg->thumbnail = loadImageFromZip(zip, jpeg, screen->w / tx, screen->h / ty);
                 thumbsLeft--;
                 if(mode == MODE_THUMBS && j >= currentImage && j < currentImage + tx*ty)
                     redraw = 1; // load affected current view
@@ -461,7 +461,7 @@ int main(int argc, char *argv[]) {
                                     mode = MODE_FULLSCREEN;
                                 else // clicked on empty area
                                     currentImage = earlierImage; // 
-                            } else if(mode == MODE_FULLSCREEN && (fullscreen->w >= screen->w || fullscreen->h >= screen->h)) {
+                            } else if(mode == MODE_FULLSCREEN && (1 || fullscreen->w >= screen->w || fullscreen->h >= screen->h)) {
                                 mode = MODE_FULLSIZE;
                             }
                             SDL_ShowCursor(mode == MODE_THUMBS ? 1 : 0);
