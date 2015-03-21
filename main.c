@@ -415,7 +415,7 @@ int main(int argc, char *argv[]) {
                 destroy_image(fullsize);
             fullsize = loadImageFromZip(zip, jpegs+currentImage, 0, 0, 0);
             loadedFullsize = currentImage;
-        } else if(thumbsLeft) {
+        } else if(thumbsLeft && mode != MODE_FULLSIZE) { // don't load thumbs when in fullsize, too slow
             for(i = 0; i < jpeg_count; i++) {
                 j = (currentImage + i) % jpeg_count;
                 jpeg = &jpegs[j];
@@ -461,7 +461,7 @@ int main(int argc, char *argv[]) {
                                     mode = MODE_FULLSCREEN;
                                 else // clicked on empty area
                                     currentImage = earlierImage; // 
-                            } else if(mode == MODE_FULLSCREEN && (fullscreen->w > screen->w || fullscreen->h > screen->h)) {
+                            } else if(mode == MODE_FULLSCREEN && (fullscreen->w >= screen->w || fullscreen->h >= screen->h)) {
                                 mode = MODE_FULLSIZE;
                             }
                             SDL_ShowCursor(mode == MODE_THUMBS ? 1 : 0);
