@@ -35,6 +35,10 @@
 
 #include <jpeglib.h>
 
+#ifdef LOGFILE
+    FILE *logfile;
+#endif
+
 #if defined _WIN32 || defined _WIN64
 #undef HAVE_STDDEF_H /* Fix SDL warning */
 #endif
@@ -208,7 +212,7 @@ JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int destx, int desty) {
         }
     }
 
-    image = read_JPEG_custom(jpeg->data, jpeg->size, sx, sy);
+    image = read_JPEG_custom(jpeg->data, jpeg->size, destx, desty);
 
     if(destx && desty) { // stretch/shrink
         t = scale(image, destx, desty);
@@ -331,10 +335,14 @@ int main(int argc, char *argv[]) {
     FILE *zip;
     JPEGRecord *jpeg;
     SDL_Event event;
-    int done = 0, redraw = 1, tx = 8, ty = 5, i, j, xoff = 0, yoff = 0,
+    int done = 0, redraw = 1, tx = 8, ty = 5, i, j, mousex = 0, mousey = 0,
         currentImage = 0, earlierImage = 0, loadedFullscreen = -1, loadedFullsize = -1;
     JImage *fullscreen = NULL, *fullsize = NULL;
     enum { MODE_THUMBS, MODE_FULLSCREEN, MODE_FULLSIZE } mode = MODE_THUMBS;
+
+#ifdef LOGFILE
+    logfile = fopen(LOGFILE, "wt");
+#endif
 
     if(argc < 2) {
         writeMessage(SDL_MESSAGEBOX_INFORMATION, "Usage", "jzipview <pictures.zip>");
@@ -437,12 +445,12 @@ int main(int argc, char *argv[]) {
                     drawImage(screen, fullscreen, 0, 0);
                     break;
                 case MODE_FULLSIZE:
-                    drawImage(screen, fullsize, xoff, yoff);
+                    drawImage(screen, fullsize,
+                        (fullsize->w <= screen->w) ? 0 : (fullsize->w - screen->w) * mousex / screen->w,
+                        (fullsize->h <= screen->h) ? 0 : (fullsize->h - screen->h) * mousey / screen->h);
                     break;
             }
             SDL_UpdateTexture(texture, NULL, screen->data, screen->w * sizeof (Uint32));
-            //SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-            //SDL_RenderClear(renderer);
             SDL_RenderCopy(renderer, texture, NULL, NULL);
             SDL_RenderPresent(renderer);
             redraw = 0;
@@ -498,13 +506,9 @@ int main(int argc, char *argv[]) {
                     break;
 
                 case SDL_MOUSEMOTION:
-                    if(mode == MODE_FULLSIZE) {
-                        xoff = (fullsize->w <= screen->w) ? 0 :
-                            (fullsize->w - screen->w) * event.button.x / screen->w;
-                        yoff = (fullsize->h <= screen->h) ? 0 :
-                            (fullsize->h - screen->h) * event.button.y / screen->h;
-                        redraw = 1;
-                    }
+                    mousex = event.button.x;
+                    mousey = event.button.y;
+                    if(mode == MODE_FULLSIZE) redraw = 1;
                     break;
 
                 case SDL_MOUSEWHEEL:
@@ -563,6 +567,9 @@ int main(int argc, char *argv[]) {
     destroy_font(font24);
 
     fclose(zip);
+#ifdef LOGFILE
+    fclose(logfile);
+#endif
 
     return(0);
 }
