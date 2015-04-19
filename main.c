@@ -35,6 +35,7 @@
 
 #include <jpeglib.h>
 
+//#define LOGFILE "jzipview.log"
 #ifdef LOGFILE
     FILE *logfile;
 #endif
@@ -57,6 +58,7 @@ typedef struct {
     long size, compressedSize;
     unsigned char *data;
     JImage *thumbnail;
+    int loaded;
 } JPEGRecord;
 
 JPEGRecord *jpegs;
@@ -132,6 +134,10 @@ JImage *scale(JImage *image, int w, int h) {
     return res;
 }
 
+// Poor man's error handling, thanks JPEGLIB for ZERO documentation
+int jpegError = 0;
+void error_exit(j_common_ptr cinfo) { jpegError = 1; }
+
 JImage *read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
         int tx, int ty) {
     struct jpeg_decompress_struct cinfo;
@@ -139,16 +145,20 @@ JImage *read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
 
     JSAMPARRAY buffer;      /* Output row buffer */
     int row_stride, x, y;     /* physical row width in output buffer */
-    JImage *image;
+    JImage *image = NULL;
 
     cinfo.err = jpeg_std_error(&jerr);
+    jerr.error_exit = error_exit; // catch errors and skip instead of exiting
+    jpegError = 0; // reset possible error state
 
     jpeg_create_decompress(&cinfo);
+    if(jpegError) goto READ_ERROR;
 
     jpeg_mem_src(&cinfo, inbuffer, insize);
+    if(jpegError) goto READ_ERROR_DESTROY;
 
-    /* Seems like these return something if read is interrupted */
     jpeg_read_header(&cinfo, TRUE);
+    if(jpegError) goto READ_ERROR_DESTROY;
 
     cinfo.out_color_space = JCS_RGB; // make RGB even from greyscale
     cinfo.dct_method = JDCT_ISLOW; // best quality, not really slower than IFAST or FLOAT
@@ -163,11 +173,13 @@ JImage *read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
     }
 
     jpeg_start_decompress(&cinfo);
+    if(jpegError) goto READ_ERROR_FINISH;
 
     row_stride = cinfo.output_width * cinfo.output_components;
 
     /* Make a one-row-high sample array that will go away when done with image */
     buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
+    if(jpegError) goto READ_ERROR_FINISH;
 
     if((image = create_image(cinfo.output_width, cinfo.output_height)) == NULL) {
         writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't allocate memory for scaled image!\n");
@@ -176,15 +188,17 @@ JImage *read_JPEG_custom(unsigned char *inbuffer, unsigned long insize,
 
     for(y=0; cinfo.output_scanline < cinfo.output_height; y++) {
         jpeg_read_scanlines(&cinfo, buffer, 1);
+        if(jpegError) goto READ_ERROR_FINISH;
         for(x=0; x<image->w; x++)
             image->data[image->w * y + x] = GETRGB(buffer[0][x*3+0],
                         buffer[0][x*3+1], buffer[0][x*3+2]);
     }
 
+READ_ERROR_FINISH:
     jpeg_finish_decompress(&cinfo);
-
+READ_ERROR_DESTROY:
     jpeg_destroy_decompress(&cinfo);
-
+READ_ERROR:
     return image;
 }
 
@@ -200,7 +214,6 @@ JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int destx, int desty) {
             quit(1);
         }
 
-
         if((jpeg->data = (unsigned char *)malloc(jpeg->size)) == NULL) {
             writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't allocate memory!");
             quit(1);
@@ -214,7 +227,7 @@ JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int destx, int desty) {
 
     image = read_JPEG_custom(jpeg->data, jpeg->size, destx, desty);
 
-    if(destx && desty) { // stretch/shrink
+    if(image != NULL && destx && desty) { // stretch/shrink
         t = scale(image, destx, desty);
         destroy_image(image);
         image = t;
@@ -249,6 +262,7 @@ int recordCallback(FILE *zip, int idx, JZFileHeader *header, char *filename) {
     jpeg->compressedSize = header->compressedSize;
     jpeg->data = NULL;
     jpeg->thumbnail = NULL;
+    jpeg->loaded = 0;
     jpeg->filename = (char *)malloc(strlen(filename)+1);
 
     if(jpeg->filename == NULL) {
@@ -427,8 +441,9 @@ int main(int argc, char *argv[]) {
             for(i = 0; i < jpeg_count; i++) {
                 j = (currentImage + i) % jpeg_count;
                 jpeg = &jpegs[j];
-                if(jpeg->thumbnail != NULL) continue;
+                if(jpeg->loaded) continue;
                 jpeg->thumbnail = loadImageFromZip(zip, jpeg, screen->w / tx, screen->h / ty);
+                jpeg->loaded = 1;
                 thumbsLeft--;
                 if(mode == MODE_THUMBS && j >= currentImage && j < currentImage + tx*ty)
                     redraw = 1; // load affected current view
@@ -442,10 +457,11 @@ int main(int argc, char *argv[]) {
                     drawThumbs(screen, font24, tx, ty, currentImage);
                     break;
                 case MODE_FULLSCREEN:
-                    drawImage(screen, fullscreen, 0, 0);
+                    if(fullscreen != NULL)
+                        drawImage(screen, fullscreen, 0, 0);
                     break;
                 case MODE_FULLSIZE:
-                    drawImage(screen, fullsize,
+                    if(fullsize != NULL) drawImage(screen, fullsize,
                         (fullsize->w <= screen->w) ? 0 : (fullsize->w - screen->w) * mousex / screen->w,
                         (fullsize->h <= screen->h) ? 0 : (fullsize->h - screen->h) * mousey / screen->h);
                     break;
