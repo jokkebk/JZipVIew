@@ -6,6 +6,6 @@ else
 		include Makefile.Linux
 	endif
 ifeq ($(UNAME_S),Darwin)
-		include Makefile.OSX
+		include Makefile.Macos
 	endif
 endif

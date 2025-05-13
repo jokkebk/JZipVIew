@@ -3,3 +3,5 @@
 *.zip
 jzipview.exe
 jzipview
+
+**/.claude/settings.local.json

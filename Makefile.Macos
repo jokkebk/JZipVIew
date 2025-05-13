@@ -1,0 +1,50 @@
+# Makefile for macOS with Apple Silicon and Homebrew
+# Modern macOS with Apple Silicon (M1/M2/M3) and Homebrew-installed dependencies
+
+# Homebrew paths
+BREW_PREFIX = /opt/homebrew
+SDL_PREFIX = $(BREW_PREFIX)/opt/sdl2
+PNG_PREFIX = $(BREW_PREFIX)/opt/libpng
+JPEG_PREFIX = $(BREW_PREFIX)/opt/jpeg
+Z_PREFIX = $(BREW_PREFIX)/opt/zlib
+
+# Library and include paths
+SDL_LIB = -L$(SDL_PREFIX)/lib -lSDL2
+SDL_INC = -I$(SDL_PREFIX)/include
+
+Z_LIB = -L$(Z_PREFIX)/lib -lz
+Z_INC = -I$(Z_PREFIX)/include
+
+PNG_LIB = -L$(PNG_PREFIX)/lib -lpng
+PNG_INC = -I$(PNG_PREFIX)/include
+
+JPEG_LIB = -L$(JPEG_PREFIX)/lib -ljpeg
+JPEG_INC = -I$(JPEG_PREFIX)/include
+
+# Compiler settings
+CC = clang
+CFLAGS = -Wall -O3 $(SDL_INC) $(Z_INC) $(PNG_INC) $(JPEG_INC) -arch arm64
+LDFLAGS = $(SDL_LIB) $(PNG_LIB) $(Z_LIB) $(JPEG_LIB) -arch arm64
+OBJECTS = main.o junzip.o image.o font.o
+EXE = jzipview
+
+all: $(EXE)
+
+run: $(EXE)
+	./$^ test.zip
+	
+clean:
+	$(RM) *.o $(EXE)
+
+$(EXE): $(OBJECTS)
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
+
+%.exe: %.o
+	$(CC) $(CFLAGS) $< -o $@
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Small helpers to make header changes also recompile these files
+image.o: image.c image.h
+font.o: font.c font.h
