@@ -353,14 +353,23 @@ int main(int argc, char *argv[]) {
         currentImage = 0, earlierImage = 0, loadedFullscreen = -1, loadedFullsize = -1;
     JImage *fullscreen = NULL, *fullsize = NULL;
     enum { MODE_THUMBS, MODE_FULLSCREEN, MODE_FULLSIZE } mode = MODE_THUMBS;
+    int windowed = 0; // Flag for windowed mode
 
 #ifdef LOGFILE
     logfile = fopen(LOGFILE, "wt");
 #endif
 
+    // Check for command line arguments
     if(argc < 2) {
-        writeMessage(SDL_MESSAGEBOX_INFORMATION, "Usage", "jzipview <pictures.zip>");
+        writeMessage(SDL_MESSAGEBOX_INFORMATION, "Usage", "jzipview <pictures.zip> [--windowed]");
         return 0;
+    }
+    
+    // Parse command line arguments
+    for(i = 2; i < argc; i++) {
+        if(strcmp(argv[i], "--windowed") == 0) {
+            windowed = 1;
+        }
     }
 
     if(strlen(argv[0]) > 1000) {
@@ -390,9 +399,16 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    window = SDL_CreateWindow("JZipView",
-            SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-            0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    // Create window based on mode
+    if(windowed) {
+        window = SDL_CreateWindow("JZipView",
+                SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                1024, 768, SDL_WINDOW_RESIZABLE);
+    } else {
+        window = SDL_CreateWindow("JZipView",
+                SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    }
     if(window == NULL) {
         writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "SDL_CreateWindow Error: %s\n", SDL_GetError());
         return 1;
@@ -551,12 +567,53 @@ int main(int argc, char *argv[]) {
                         redraw = 1;
                     }
                     break;
+                    
+                case SDL_WINDOWEVENT:
+                    if(event.window.event == SDL_WINDOWEVENT_RESIZED ||
+                       event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                        // Handle window resize
+                        int new_w = event.window.data1;
+                        int new_h = event.window.data2;
+                        
+                        // Free old resources
+                        destroy_image(screen);
+                        SDL_DestroyTexture(texture);
+                        
+                        // Create new resources with new size
+                        screen = create_image(new_w, new_h);
+                        texture = SDL_CreateTexture(renderer,
+                                SDL_PIXELFORMAT_ARGB8888,
+                                SDL_TEXTUREACCESS_STREAMING,
+                                screen->w, screen->h);
+                        
+                        // Recalculate thumbnail grid
+                        tx = screen->w / THUMB_W;
+                        ty = screen->h / THUMB_H;
+                        
+                        // Reload fullscreen image if needed
+                        if(mode == MODE_FULLSCREEN) {
+                            loadedFullscreen = -1; // Force reload at correct size
+                        }
+                        
+                        redraw = 1;
+                    }
+                    break;
 
                 case SDL_KEYDOWN:
                     switch(event.key.keysym.sym) {
                         case SDLK_ESCAPE:
                         case SDLK_q: case SDLK_x:
                             done = 2;
+                            break;
+                        case SDLK_f: // Toggle fullscreen
+                            if(windowed) {
+                                SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+                                windowed = 0;
+                            } else {
+                                SDL_SetWindowFullscreen(window, 0);
+                                windowed = 1;
+                            }
+                            redraw = 1;
                             break;
                         case SDLK_SPACE:
                         case SDLK_LEFT:
