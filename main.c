@@ -438,8 +438,9 @@ int main(int argc, char *argv[]) {
 
     thumbsLeft = jpeg_count;
 
-    tx = screen->w / THUMB_W;
-    ty = screen->h / THUMB_H;
+    // Ensure tx and ty are at least 1 to prevent division by zero
+    tx = (screen->w / THUMB_W > 0) ? screen->w / THUMB_W : 1;
+    ty = (screen->h / THUMB_H > 0) ? screen->h / THUMB_H : 1;
 
     // main loop
     while(done < 2) {
@@ -495,12 +496,21 @@ int main(int argc, char *argv[]) {
                         case SDL_BUTTON_LEFT:
                             if(mode == MODE_THUMBS) {
                                 earlierImage = currentImage; // store where we were
-                                currentImage = event.button.x / THUMB_W +
-                                    tx * (event.button.y / THUMB_H) + currentImage;
+
+                                // Calculate actual thumbnail cell dimensions
+                                int actual_thumb_w = (tx > 0) ? (screen->w / tx) : screen->w;
+                                int actual_thumb_h = (ty > 0) ? (screen->h / ty) : screen->h;
+                                if (actual_thumb_w == 0) actual_thumb_w = 1; // Prevent division by zero if screen too small
+                                if (actual_thumb_h == 0) actual_thumb_h = 1;
+
+                                int clicked_col = event.button.x / actual_thumb_w;
+                                int clicked_row = event.button.y / actual_thumb_h;
+                                currentImage = earlierImage + clicked_row * tx + clicked_col;
+
                                 if(currentImage < jpeg_count) // clicked on a thumbnail
                                     mode = MODE_FULLSCREEN;
                                 else // clicked on empty area
-                                    currentImage = earlierImage; // 
+                                    currentImage = earlierImage; 
                             } else if(mode == MODE_FULLSCREEN && (1 || fullscreen->w >= screen->w || fullscreen->h >= screen->h)) {
                                 mode = MODE_FULLSIZE;
                             }
@@ -581,18 +591,34 @@ int main(int argc, char *argv[]) {
                         
                         // Create new resources with new size
                         screen = create_image(new_w, new_h);
+                        if (!screen) { writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't create image for new size!"); quit(1); }
                         texture = SDL_CreateTexture(renderer,
                                 SDL_PIXELFORMAT_ARGB8888,
                                 SDL_TEXTUREACCESS_STREAMING,
                                 screen->w, screen->h);
+                        if (!texture) { writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't create texture for new size!"); quit(1); }
                         
-                        // Recalculate thumbnail grid
-                        tx = screen->w / THUMB_W;
-                        ty = screen->h / THUMB_H;
+                        // Recalculate thumbnail grid, ensuring tx and ty are at least 1
+                        tx = (screen->w / THUMB_W > 0) ? screen->w / THUMB_W : 1;
+                        ty = (screen->h / THUMB_H > 0) ? screen->h / THUMB_H : 1;
+                        
+                        // Invalidate all existing thumbnails to force reload with new dimensions
+                        for(i = 0; i < jpeg_count; i++) {
+                            if(jpegs[i].thumbnail != NULL) {
+                                destroy_image(jpegs[i].thumbnail);
+                                jpegs[i].thumbnail = NULL;
+                            }
+                            jpegs[i].loaded = 0;
+                        }
+                        thumbsLeft = jpeg_count;
                         
                         // Reload fullscreen image if needed
                         if(mode == MODE_FULLSCREEN) {
                             loadedFullscreen = -1; // Force reload at correct size
+                        }
+                        // If in fullsize mode, the image itself is original size, but view might need update
+                        if(mode == MODE_FULLSIZE) {
+                            loadedFullsize = -1; // Force reload if necessary, or at least re-evaluate view
                         }
                         
                         redraw = 1;
@@ -606,14 +632,19 @@ int main(int argc, char *argv[]) {
                             done = 2;
                             break;
                         case SDLK_f: // Toggle fullscreen
-                            if(windowed) {
+                            if(windowed) { // Currently windowed, switch to fullscreen
                                 SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
                                 windowed = 0;
-                            } else {
-                                SDL_SetWindowFullscreen(window, 0);
+                            } else { // Currently fullscreen, switch to windowed
+                                SDL_SetWindowFullscreen(window, 0); // Switch to windowed mode
+                                SDL_SetWindowResizable(window, SDL_TRUE); // Explicitly make it resizable
+                                // Explicitly set a window size to ensure visibility and trigger resize events
+                                SDL_SetWindowSize(window, 1024, 768);
                                 windowed = 1;
                             }
-                            redraw = 1;
+                            // A SDL_WINDOWEVENT_RESIZED will likely be triggered by SDL_SetWindowFullscreen or SDL_SetWindowSize,
+                            // which handles screen/texture recreation and thumbnail invalidation.
+                            redraw = 1; // Ensure redraw happens
                             break;
                         case SDLK_SPACE:
                         case SDLK_LEFT:
