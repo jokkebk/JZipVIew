@@ -4,7 +4,7 @@ Z_LIB = -lz
 Z_INC =
 
 CC=gcc
-CFLAGS=-Wall -O3 $(SDL_INC) $(Z_INC)
+CFLAGS=-Wall -O3 $(SDL_INC) $(Z_INC) -DHAVE_ZLIB
 # Add -mconsole below if you want
 LDFLAGS = $(SDL_LIB) -lpng $(Z_LIB) -ljpeg
 OBJECTS=main.o junzip.o image.o font.o 

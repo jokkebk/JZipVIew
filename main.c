@@ -202,12 +202,18 @@ READ_ERROR:
     return image;
 }
 
-JImage *loadImageFromZip(FILE *zip, JPEGRecord *jpeg, int destx, int desty) {
-    JZFileHeader header;
+JImage *loadImageFromZip(JZFile *zip, JPEGRecord *jpeg, int destx, int desty) {
+    JZFileHeader header = {0};
     JImage *image = NULL, *t;
 
     if(jpeg->data == NULL) {
-        fseek(zip, jpeg->offset, SEEK_SET);
+        header.compressedSize = jpeg->compressedSize;
+        header.uncompressedSize = jpeg->size;
+
+        if(zip->seek(zip, jpeg->offset, SEEK_SET)) {
+            writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't seek to local file header!");
+            quit(1);
+        }
 
         if(jzReadLocalFileHeader(zip, &header, NULL, 0)) { // don't re-read filename
             writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't read local file header!");
@@ -251,8 +257,11 @@ int matchExtension(const char *haystack, const char *needle) {
 }
 
 // Check individual file if it's a jpeg and store data for it if it is
-int recordCallback(FILE *zip, int idx, JZFileHeader *header, char *filename) {
+int recordCallback(JZFile *zip, int idx, JZFileHeader *header, char *filename, void *user_data) {
     JPEGRecord *jpeg = &jpegs[jpeg_count];
+    (void)zip;
+    (void)idx;
+    (void)user_data;
 
     if(!matchExtension(filename, ".jpg") && !matchExtension(filename, ".jpeg"))
         return 1; // skip
@@ -277,7 +286,7 @@ int recordCallback(FILE *zip, int idx, JZFileHeader *header, char *filename) {
 }
 
 // Process zip central directory and allocate room for jpegs
-int processZip(FILE *zip) {
+int processZip(JZFile *zip) {
     JZEndRecord endRecord;
 
     if(jzReadEndRecord(zip, &endRecord)) {
@@ -288,7 +297,7 @@ int processZip(FILE *zip) {
     jpegs = (JPEGRecord *)malloc(sizeof(JPEGRecord) * endRecord.numEntries);
     jpeg_count = 0;
 
-    if(jzReadCentralDirectory(zip, &endRecord, recordCallback)) {
+    if(jzReadCentralDirectory(zip, &endRecord, recordCallback, NULL)) {
         writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't read ZIP file central record.");
         return -1;
     }
@@ -346,7 +355,8 @@ int main(int argc, char *argv[]) {
     JFont *font24;
     int x, y;
     char fontname[1024];
-    FILE *zip;
+    FILE *zipFile;
+    JZFile *zip;
     JPEGRecord *jpeg;
     SDL_Event event;
     int done = 0, redraw = 1, tx = 8, ty = 5, i, j, mousex = 0, mousey = 0,
@@ -377,10 +387,11 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    if(!(zip = fopen(argv[1], "rb"))) {
+    if(!(zipFile = fopen(argv[1], "rb"))) {
         writeMessage(SDL_MESSAGEBOX_ERROR, "Error message", "Couldn't open ZIP \"%s\"!", argv[1]);
         return -1;
     }
+    zip = jzfile_from_stdio_file(zipFile);
 
     strcpy(fontname, argv[0]);
     for(i = strlen(fontname)-1; i; i--) {
@@ -670,7 +681,7 @@ int main(int argc, char *argv[]) {
 
     destroy_font(font24);
 
-    fclose(zip);
+    zip->close(zip);
 #ifdef LOGFILE
     fclose(logfile);
 #endif
