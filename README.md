@@ -15,3 +15,18 @@ This software is based in part on the work of the Independent JPEG Group. Also
 libpng, SDL2, and zlib libraries are used, plus MinGW for building. All these
 libraries are needed when compiling from source. Edit the makefile
 appropriately to suit your local configuration and just type "make".
+
+Fetching submodules
+-------------------
+
+JZipView depends on the junzip library via a git submodule. After cloning, run:
+
+```
+git submodule update --init --recursive
+```
+
+To pull updates from junzip later:
+
+```
+git submodule update --remote junzip
+```
