@@ -1,0 +1,3 @@
+[submodule "junzip"]
+	path = junzip
+	url = https://github.com/jokkebk/junzip

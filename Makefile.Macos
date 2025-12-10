@@ -23,7 +23,7 @@ JPEG_INC = -I$(JPEG_PREFIX)/include
 
 # Compiler settings
 CC = clang
-CFLAGS = -Wall -O3 $(SDL_INC) $(Z_INC) $(PNG_INC) $(JPEG_INC) -arch arm64 -DHAVE_ZLIB
+CFLAGS = -Wall -O3 $(SDL_INC) $(Z_INC) $(PNG_INC) $(JPEG_INC) -Ijunzip -arch arm64 -DHAVE_ZLIB
 LDFLAGS = $(SDL_LIB) $(PNG_LIB) $(Z_LIB) $(JPEG_LIB) -arch arm64
 OBJECTS = main.o junzip.o image.o font.o
 EXE = jzipview
@@ -48,3 +48,5 @@ $(EXE): $(OBJECTS)
 # Small helpers to make header changes also recompile these files
 image.o: image.c image.h
 font.o: font.c font.h
+junzip.o: junzip/junzip.c junzip/junzip.h
+	$(CC) $(CFLAGS) -c junzip/junzip.c -o junzip.o
